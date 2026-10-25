@@ -356,6 +356,8 @@ pub struct Ctx<'a> {
     /// `TrafficSim::timed_waits_only`: an early bus waits only where `waits_here` says so
     /// (off: at every stop it serves, as Omsi.exe does).
     pub timed_waits_only: bool,
+    /// `TrafficSim::stop_wait_max` (Stalium).
+    pub stop_wait_max: Option<f64>,
     /// The traffic's time (s), what the berths are timed by.
     pub time: f32,
     /// The front stop's berth as the traffic stands (`TrafficSim::berth_scene`).
@@ -600,7 +602,20 @@ impl BusService {
         // a time on holds the bus for it; elsewhere its time is the running time shared out,
         // and an early bus serves and drives on. Without it (the default) the bus waits at
         // every stop it serves, as in Omsi.exe
-        let wait = self.stop_wait(depart, ctx.day_time, ctx.timed_waits_only, layover, rail);
+        let mut wait = self.stop_wait(depart, ctx.day_time, ctx.timed_waits_only, layover, rail);
+        // Stalium: an early bus stands no longer than `stop_wait_max` (its trip's last stop
+        // too): standing for many minutes at a stop on the street, it held the whole lane
+        // behind it and the traffic jammed (not a layover at the first stop: it would leave
+        // before its time)
+        if let Some(max) = ctx.stop_wait_max.filter(|_| !layover) {
+            if wait > max {
+                log::debug!("t={:.1}: timetable bus {} early at {:?}: stands {:.0} s, not {:.0} s", ctx.day_time, ctx.id, self.stops.front().map(|s| s.id), max, wait);
+                wait = max;
+            }
+        }
+        if wait > 300.0 {
+            log::info!("t={:.1}: timetable bus {} stands {:.0} min at its stop {:?} (early for its departure)", ctx.day_time, ctx.id, wait / 60.0, self.stops.front().map(|s| s.id));
+        }
         self.leave_at = ctx.day_time + wait;
         self.arrived_at = ctx.day_time;
         self.boarding = boarding_time(ctx.id);

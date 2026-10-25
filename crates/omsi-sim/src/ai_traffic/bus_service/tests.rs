@@ -170,7 +170,7 @@ fn station_side_comes_from_the_stop_it_boards_at() {
 
 fn service_context(net: &Network, day_time: f64, dt: f32) -> Ctx<'_> {
     Ctx { net, way: &[], day_time, dt, id: 1, stopped: 0.0, passing: false,
-        kerb_swerve: None, wanted: Some(false), debug: false, timed_waits_only: false,
+        kerb_swerve: None, wanted: Some(false), debug: false, timed_waits_only: false, stop_wait_max: None,
         time: day_time as f32, berth: BerthScene::default() }
 }
 

@@ -987,6 +987,7 @@ impl TrafficSim {
                 kerb_swerve,
                 debug: debug || omsi_cfg::flags::OMSI_DEBUG_PAX.is_set(),
                 timed_waits_only: self.timed_waits_only,
+                stop_wait_max: self.stop_wait_max,
                 time: self.time,
                 berth,
             };

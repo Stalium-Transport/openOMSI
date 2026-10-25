@@ -113,6 +113,7 @@ impl TrafficSim {
             unsched_factor,
             max_scheduled,
             timed_waits_only: false,
+            stop_wait_max: None,
             no_timetable_buses: false,
             viewer: None,
             occluders: None,

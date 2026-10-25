@@ -136,6 +136,11 @@ impl Traffic {
         let mut sim = TrafficSim::assemble(root, net, random, lights, controller_of_object, (parked_cars, lane_tiles), density_curve, (unsched_factor, max_scheduled), target);
         // (#1773: off, an early timetable bus waits at every stop, as in OMSI)
         sim.timed_waits_only = crate::settings::Settings::load().ai_wait_timed_stops_only;
+        // Stalium: a dedicated server's server.cfg decides (see `stalium_server`)
+        if let Some(w) = crate::stalium_server::waits() {
+            sim.timed_waits_only = w.timed_only;
+            sim.stop_wait_max = w.wait_max;
+        }
         Ok(Traffic::with_sim(sim, root))
     }
 

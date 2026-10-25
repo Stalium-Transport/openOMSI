@@ -189,6 +189,10 @@ pub struct TrafficSim {
     /// Omsi.exe, where the 20 s check (0x7d9bdc) runs against every station's time, the ones
     /// shared out by distance too (0x616afc -> 0x73b474).
     pub timed_waits_only: bool,
+    /// Stalium: the longest a timetable bus stands at a stop it came to early, its trip's last
+    /// stop too (s; None: as Omsi.exe, up to `LAYOVER_WAIT`, at the last stop however long).
+    /// Not a layover at its first stop. A dedicated server sets it from `server.cfg`.
+    pub stop_wait_max: Option<f64>,
     /// `--no-timetable-buses`: the timetable runs for the player's duty, but puts no AI
     /// bus on the road (#1762).
     pub no_timetable_buses: bool,
