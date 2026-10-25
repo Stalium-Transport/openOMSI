@@ -19,7 +19,7 @@ Base : openOMSI 0.3.39 (protocole réseau 14, compatible avec openOMSI 0.3.37).
   carte de la liste rejoint le serveur, sinon le trajet se fait en solo. Rien à régler dans
   BCS (on choisit juste le dossier de cette version), et pas de nouvelle version quand on
   change une carte, un port ou un membre. Seule l'adresse du serveur qui répond est dans le
-  programme (`scripts/stalium/servers.py`).
+  programme, et elle vient du secret GitHub `STALIUM_ANNUAIRE` au moment de la compilation : elle n'est jamais écrite dans le code public.
   Code : `crates/omsi-app/src/stalium_bcs.rs`, `crates/omsi-lan/src/bcs.rs`.
 - **Pas de mise à jour automatique vers la version officielle** (elle ne rejoindrait plus
   les serveurs Stalium).

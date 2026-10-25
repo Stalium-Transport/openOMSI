@@ -44,6 +44,19 @@ jobs:
           workspaces: |
             . -> target
             launcher/src-tauri -> target
+      # the Stalium directory's address (GitHub secret STALIUM_ANNUAIRE, host:port): scrambled
+      # into the program at the build, never in the source
+      - name: Stalium directory
+        shell: pwsh
+        env:
+          ANNUAIRE: ${{ secrets.STALIUM_ANNUAIRE }}
+        run: |
+          $a = "$env:ANNUAIRE".Trim()
+          if (-not $a) { "::warning::secret STALIUM_ANNUAIRE missing: BCS trips will be driven alone"; exit 0 }
+          $k = [Text.Encoding]::ASCII.GetBytes("Stalium-BCS-2026")
+          $d = [Text.Encoding]::UTF8.GetBytes($a)
+          $hex = -join (0..($d.Length - 1) | ForEach-Object { '{0:x2}' -f ($d[$_] -bxor $k[$_ % $k.Length]) })
+          "STALIUM_ANNUAIRE_X=$hex" | Out-File -Append $env:GITHUB_ENV
       - name: Tests (Stalium)
         run: |
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-lan --lib -- members bcs
