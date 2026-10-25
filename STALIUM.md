@@ -14,5 +14,6 @@ Base : openOMSI 0.3.39 (protocole réseau 14, compatible avec openOMSI 0.3.37).
 
 ## Compilation
 
-GitHub Actions, workflow `Stalium` (`.github/workflows/stalium.yml`) : un tag
-`stalium-<version>` compile le serveur Windows et publie le zip dans les Releases.
+GitHub Actions, workflow `Stalium` (`.github/workflows/stalium.yml`) : chaque envoi sur la
+branche `stalium` compile le serveur Windows et publie le zip dans les Releases
+(`stalium-0.3.39.<numéro>`).
