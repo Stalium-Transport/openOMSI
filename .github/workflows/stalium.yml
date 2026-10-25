@@ -1,5 +1,5 @@
-# Stalium Transport: builds the Windows dedicated server of this fork (openOMSI with the
-# Stalium changes) and publishes it as a release.
+# Stalium Transport: builds the Windows game and dedicated server of this fork (openOMSI
+# with the Stalium changes) and publishes them as a release.
 #   - every push to the branch stalium: builds it and publishes the release
 #     stalium-<VERSION>.<run number> (e.g. stalium-0.3.39.4) with the zip
 #   - Actions -> Stalium -> Run workflow: the same, by hand
@@ -19,9 +19,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  server-windows:
+  windows:
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
       TARGET: x86_64-pc-windows-msvc
     steps:
@@ -30,53 +30,94 @@ jobs:
         shell: pwsh
         run: |
           $base = "0.3.39"  # openOMSI release this branch is built on
-          $v = "$base.${{ github.run_number }}"
-          "OPENOMSI_VERSION=$v-stalium" | Out-File -Append $env:GITHUB_ENV
-          "### Stalium (openOMSI) $v" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          # (numbers, then -stalium: the launcher takes the numbers, the updater leaves a
+          # -stalium build alone)
+          "OPENOMSI_VERSION=$base-stalium.${{ github.run_number }}" | Out-File -Append $env:GITHUB_ENV
+          "STALIUM_TAG=stalium-$base.${{ github.run_number }}" | Out-File -Append $env:GITHUB_ENV
+          "### Stalium (openOMSI) $base.${{ github.run_number }}" | Out-File -Append $env:GITHUB_STEP_SUMMARY
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.TARGET }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: stalium-${{ env.TARGET }}
+          workspaces: |
+            . -> target
+            launcher/src-tauri -> target
       - name: Tests (Stalium)
-        run: cargo test --locked --release --target ${{ env.TARGET }} -p omsi-lan --lib members
-      - name: Build
-        run: cargo build --locked --release --target ${{ env.TARGET }} -p omsi-app
-      - name: Package
+        run: |
+          cargo test --locked --release --target ${{ env.TARGET }} -p omsi-lan --lib members
+          cargo test --locked --release --target ${{ env.TARGET }} -p omsi-app --lib stalium_bcs
+      - name: Build (game, launcher)
+        shell: cmd
+        run: scripts\build-windows.cmd %TARGET%
+      - name: DirectX shader compiler
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R microsoft/DirectXShaderCompiler --pattern "dxc_*.zip" -D dxc
+          $zip = Get-ChildItem dxc/*.zip | Where-Object { $_.Name -notmatch "linux|pdb" } | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath dxc/x
+          Copy-Item "dxc/x/bin/x64/dxcompiler.dll", "dxc/x/bin/x64/dxil.dll" dist/windows/
+      - name: ANGLE (DirectX 11)
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANGLE_TAG: angle-8091-36b74e4dd4
+          ANGLE_SHA256: 1c0086155a17445110dd97400018ca6e72ea245ef178989b457720ee1fba3af5
+        run: |
+          gh release download $env:ANGLE_TAG -R openOMSI-org/angle-openomsi --pattern "*-windows-x64.zip" -D angle
+          $zip = Get-ChildItem angle/*.zip | Select-Object -First 1
+          $have = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower()
+          if ($have -ne $env:ANGLE_SHA256) { throw "ANGLE zip: SHA-256 $have, expected $env:ANGLE_SHA256" }
+          Expand-Archive $zip.FullName -DestinationPath angle/x
+          $dir = Get-ChildItem angle/x -Directory | Select-Object -First 1
+          Copy-Item (Join-Path $dir.FullName "libEGL.dll"), (Join-Path $dir.FullName "libGLESv2.dll"), (Join-Path $dir.FullName "LICENSE-ANGLE.txt") dist/windows/
+      - name: Visual C++ runtime
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist/server, out | Out-Null
-          Copy-Item "target/$env:TARGET/release/openomsi.exe", assets/steam_redist/steam_api64.dll, scripts/server/start.cmd, scripts/server/run-server.cmd, scripts/server/run-server.ps1, LICENSE dist/server/
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
           $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue | Sort-Object FullName | Select-Object -Last 1
           $dir = if ($crt) { $crt.FullName } else { "$env:SystemRoot\System32" }
-          foreach ($dll in "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll") { Copy-Item (Join-Path $dir $dll) dist/server/ }
+          foreach ($dll in "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll") { Copy-Item (Join-Path $dir $dll) dist/windows/ }
+      - name: Package
+        shell: pwsh
+        run: |
+          $v = $env:STALIUM_TAG -replace '^stalium-', ''
+          New-Item -ItemType Directory -Force out, dist/server | Out-Null
+          Copy-Item STALIUM.md, LICENSE dist/windows/
+          Compress-Archive -Path dist/windows/* -DestinationPath "out/Stalium-openOMSI-$v-windows-x64.zip"
+          Copy-Item dist/windows/openomsi.exe, dist/windows/steam_api64.dll, dist/windows/vcruntime140.dll, dist/windows/vcruntime140_1.dll, dist/windows/msvcp140.dll, scripts/server/start.cmd, scripts/server/run-server.cmd, scripts/server/run-server.ps1, LICENSE dist/server/
           Copy-Item docs/SERVER.md dist/server/README.md
           New-Item -ItemType File -Force dist/server/.openomsi-content | Out-Null
           "# Membres Stalium : un nom par ligne (renommer en membres.txt pour activer)`r`n# Michael`r`nmessage: Serveur reserve aux membres Stalium Transport : inscris-toi sur notre Discord`r`n" | Out-File -Encoding utf8 dist/server/membres.exemple.txt
-          Compress-Archive -Path dist/server/* -DestinationPath "out/Stalium-openOMSI-$env:OPENOMSI_VERSION-server-windows-x64.zip"
+          Compress-Archive -Path dist/server/* -DestinationPath "out/Stalium-openOMSI-$v-server-windows-x64.zip"
+          $env:STALIUM_TAG | Out-File -Encoding ascii out/tag.txt
           Get-ChildItem out
       - uses: actions/upload-artifact@v4
         with:
-          name: stalium-server-windows-x64
-          path: out/*.zip
+          name: stalium-windows-x64
+          path: out/*
 
   release:
-    needs: server-windows
+    needs: windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: stalium-server-windows-x64
+          name: stalium-windows-x64
           path: out
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="stalium-$(ls out | sed -E 's/.*-([0-9.]+)-stalium-server.*/\1/')"
+          tag="$(tr -d '\r\n\357\273\277' < out/tag.txt)"
+          rm out/tag.txt
           gh release create "$tag" out/*.zip -R "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "Stalium $tag" \
-            --notes "Serveur dedie Stalium Transport (base openOMSI, projet independant, AGPL-3.0). Protocole 14, compatible avec openOMSI 0.3.37. Code source : commit ${{ github.sha }} de la branche stalium."
+            --notes "openOMSI Stalium Transport (base openOMSI 0.3.39, projet independant, AGPL-3.0), protocole 14. Jeu : un trajet BCS sur une carte Stalium rejoint le serveur Stalium tout seul. Serveur : membres.txt. Code source : commit ${{ github.sha }} de la branche stalium."
