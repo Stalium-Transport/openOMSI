@@ -5,7 +5,9 @@
 //! is `join <port>` (the server of that map, on this same machine), `join <host:port>` or
 //! `solo <why>`.
 //!
-//! `bcs.txt` is kept scrambled, unreadable as it lies on the disk. It is edited with
+//! `bcs.txt` is kept sealed with the Windows key of the server's machine (DPAPI, machine
+//! scope): unreadable as it lies on the disk, and on any other computer - no key is in the
+//! program or its source (elsewhere than on Windows it is only scrambled). It is edited with
 //! `openomsi.exe --stalium-bcs <path of bcs.txt>`: the game opens it, readable, in Notepad and
 //! scrambles it again once Notepad is closed. Readable, it is one map a line (`#` starts a
 //! comment), read again on every question:
@@ -16,7 +18,7 @@
 //! maps/autre/global.cfg          = 1.2.3.4:27015
 //! ```
 //!
-//! No `bcs.txt` (or one not scrambled): the directory is off (404).
+//! No `bcs.txt` (or one that does not open here): the directory is off (404).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -26,6 +28,9 @@ pub const FILE_NAME: &str = "bcs.txt";
 
 static FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
+/// The file sealed with the machine's Windows key (DPAPI): readable on this server only.
+const MARK_SEALED: &str = "STALIUM-BCS2:";
+/// The file only scrambled (a server that is not on Windows).
 const MARK: &str = "STALIUM-BCS:";
 const KEY: &[u8] = b"Stalium/bcs.txt#";
 
@@ -33,20 +38,66 @@ fn xor(data: &[u8]) -> Vec<u8> {
     data.iter().enumerate().map(|(i, b)| b ^ KEY[i % KEY.len()]).collect()
 }
 
-/// The file as it is written on the disk: unreadable.
-pub fn scramble(plain: &str) -> String {
-    let hex: String = xor(plain.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-    format!("{MARK}{hex}\r\n")
+fn hex(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The file readable again (None: not a scrambled bcs.txt).
-pub fn unscramble(file: &str) -> Option<String> {
-    let hex = file.trim().trim_start_matches('\u{feff}').strip_prefix(MARK)?.trim();
+fn unhex(hex: &str) -> Option<Vec<u8>> {
     if hex.len() % 2 != 0 {
         return None;
     }
-    let bytes: Option<Vec<u8>> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()).collect();
-    Some(String::from_utf8_lossy(&xor(&bytes?)).into_owned())
+    (0..hex.len() / 2).map(|i| u8::from_str_radix(hex.get(2 * i..2 * i + 2)?, 16).ok()).collect()
+}
+
+/// Seal (`protect`) or open `data` with this machine's key: any account of this Windows
+/// (the server's service account as the administrator who edits the file) opens it, no
+/// other computer does - the program and its source hold no key.
+#[cfg(windows)]
+fn dpapi(data: &[u8], protect: bool) -> Option<Vec<u8>> {
+    use windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB};
+    let input = CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 };
+    let mut out = CRYPT_INTEGER_BLOB::default();
+    let flags = CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE;
+    // SAFETY: `input` points at `data` for the call; `out` is the system's buffer, copied
+    // and then freed with LocalFree as the documentation asks
+    unsafe {
+        let r = if protect {
+            CryptProtectData(&input, windows::core::w!("Stalium bcs.txt"), None, None, None, flags, &mut out)
+        } else {
+            CryptUnprotectData(&input, None, None, None, None, flags, &mut out)
+        };
+        r.ok()?;
+        let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
+        let _ = LocalFree(Some(HLOCAL(out.pbData as _)));
+        Some(v)
+    }
+}
+
+/// The file as it is written on the disk: sealed with this machine's key on Windows,
+/// scrambled elsewhere.
+pub fn scramble(plain: &str) -> String {
+    #[cfg(windows)]
+    if let Some(sealed) = dpapi(plain.as_bytes(), true) {
+        return format!("{MARK_SEALED}{}\r\n", hex(&sealed));
+    }
+    format!("{MARK}{}\r\n", hex(&xor(plain.as_bytes())))
+}
+
+/// The file readable again (None: not a bcs.txt of this server).
+pub fn unscramble(file: &str) -> Option<String> {
+    let file = file.trim().trim_start_matches('\u{feff}');
+    if let Some(h) = file.strip_prefix(MARK_SEALED) {
+        #[cfg(windows)]
+        return dpapi(&unhex(h.trim())?, false).map(|p| String::from_utf8_lossy(&p).into_owned());
+        #[cfg(not(windows))]
+        return {
+            let _ = h;
+            None
+        };
+    }
+    let bytes = unhex(file.strip_prefix(MARK)?.trim())?;
+    Some(String::from_utf8_lossy(&xor(&bytes)).into_owned())
 }
 
 const TEMPLATE: &str = "# Trajets BCS : une carte par ligne, carte = port (sur ce serveur) ou adresse:port\r\n# Enregistre puis ferme le Bloc-notes : le fichier est brouille a nouveau.\r\nmaps/st-servan/global.cfg = 27017\r\n";
@@ -56,7 +107,7 @@ const TEMPLATE: &str = "# Trajets BCS : une carte par ligne, carte = port (sur c
 /// example.
 pub fn edit(path: &Path) -> Result<(), String> {
     let plain = match std::fs::read_to_string(path) {
-        Ok(t) => unscramble(&t).ok_or_else(|| format!("{} n'est pas un bcs.txt brouille", path.display()))?,
+        Ok(t) => unscramble(&t).ok_or_else(|| format!("{} ne s'ouvre pas : ce n'est pas un bcs.txt, ou il a ete chiffre sur un autre serveur (recree-le ici)", path.display()))?,
         Err(_) => TEMPLATE.to_string(),
     };
     let tmp = std::env::temp_dir().join(format!("bcs-{}.txt", std::process::id()));
@@ -68,7 +119,8 @@ pub fn edit(path: &Path) -> Result<(), String> {
     ran.map_err(|e| format!("{editor}: {e}"))?;
     let edited = edited.map_err(|e| e.to_string())?;
     std::fs::write(path, scramble(&edited)).map_err(|e| format!("{}: {e}", path.display()))?;
-    println!("{} : {} carte(s), fichier brouille", path.display(), parse(&edited).len());
+    let sealed = std::fs::read_to_string(path).map(|t| t.starts_with(MARK_SEALED)).unwrap_or(false);
+    println!("{} : {} carte(s), fichier {}", path.display(), parse(&edited).len(), if sealed { "chiffre avec la cle de ce serveur" } else { "brouille" });
     Ok(())
 }
 
@@ -136,7 +188,7 @@ fn answer(path: &str) -> Option<(&'static str, String)> {
     }
     let file = FILE.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
     let Some(text) = std::fs::read_to_string(&file).ok().and_then(|t| unscramble(&t)) else {
-        log::warn!("server: BCS : {} manque ou n'est pas brouille (openomsi.exe --stalium-bcs pour le modifier)", file.display());
+        log::warn!("server: BCS : {} manque ou ne s'ouvre pas sur ce serveur (openomsi.exe --stalium-bcs pour le creer)", file.display());
         return None;
     };
     let map = query_value(query, "carte");
@@ -165,7 +217,7 @@ mod tests {
         assert_eq!(route(&r, "Maps/Berlin-Spandau/global.cfg"), "join 1.2.3.4:27021");
         assert!(route(&r, "maps/grundorf/global.cfg").starts_with("solo"));
         let f = scramble("maps/a/global.cfg = 27017\r\n");
-        assert!(f.starts_with(MARK) && !f.contains("27017") && !f.contains("maps"));
+        assert!((f.starts_with(MARK) || f.starts_with(MARK_SEALED)) && !f.contains("27017") && !f.contains("maps"));
         assert_eq!(unscramble(&f).as_deref(), Some("maps/a/global.cfg = 27017\r\n"));
         assert_eq!(unscramble("maps/a/global.cfg = 1"), None);
         assert_eq!(unscramble(TEMPLATE).map(|_| ()), None);
