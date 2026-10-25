@@ -1,16 +1,13 @@
 # Stalium Transport: builds the Windows game and dedicated server of this fork (openOMSI
 # with the Stalium changes) and publishes them as a release.
-#   - every push to the branch stalium: builds it and publishes the release
-#     stalium-<VERSION>.<run number> (e.g. stalium-0.3.39.4) with the zip
-#   - Actions -> Stalium -> Run workflow: the same, by hand
+#   - Actions -> Stalium -> Run workflow (by hand only): builds them and publishes the
+#     release stalium-<VERSION>.<run number> (e.g. stalium-0.3.39.4) with the zips
 # Independent project based on openOMSI (AGPL-3.0): not an official openOMSI release.
 name: Stalium
 
 on:
+  # by hand only: Actions -> Stalium -> Run workflow (a push publishes nothing)
   workflow_dispatch:
-  push:
-    branches: [stalium]
-    paths-ignore: ["*.md", "docs/**"]
 
 permissions:
   contents: read

@@ -1,4 +1,4 @@
-//! Updates from the project's GitHub releases (Stalium: github.com/Michael75013/openOMSI,
+//! Updates from the project's GitHub releases (Stalium: github.com/Stalium-Transport/openOMSI,
 //! the releases `stalium-<version>` of the Stalium Transport version).
 //!
 //! A release a maintainer starts from main publishes `v<MAJOR.MINOR.PATCH>` with one archive
@@ -47,12 +47,12 @@ mod unpack;
 pub use unpack::unpack;
 
 /// The project on GitHub.
-pub const REPO: &str = "Michael75013/openOMSI";
-pub const REPO_URL: &str = "https://github.com/Michael75013/openOMSI";
-const LATEST_API: &str = "https://api.github.com/repos/Michael75013/openOMSI/releases/latest";
-const RELEASES_API: &str = "https://api.github.com/repos/Michael75013/openOMSI/releases?per_page=100";
+pub const REPO: &str = "Stalium-Transport/openOMSI";
+pub const REPO_URL: &str = "https://github.com/Stalium-Transport/openOMSI";
+const LATEST_API: &str = "https://api.github.com/repos/Stalium-Transport/openOMSI/releases/latest";
+const RELEASES_API: &str = "https://api.github.com/repos/Stalium-Transport/openOMSI/releases?per_page=100";
 const RELEASE_PAGES: u32 = 5;
-const NEWEST_API: &str = "https://api.github.com/repos/Michael75013/openOMSI/releases?per_page=10";
+const NEWEST_API: &str = "https://api.github.com/repos/Stalium-Transport/openOMSI/releases?per_page=10";
 pub const FIRST_SELF_TESTED: &str = "0.2.32";
 
 /// A build the App Store delivers (every iPhone and iPad build, and a Mac build made with
