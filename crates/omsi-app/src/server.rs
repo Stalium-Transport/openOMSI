@@ -50,6 +50,8 @@ pub(crate) fn prepare(args: &mut Args, path: &Path) -> Result<ServerCfg> {
     start_administration(&cfg, path);
     crate::real_time::set_server_real(cfg.real_time);
     let _ = SERVER_VEHICLES.set(cfg.vehicles.clone());
+    // Stalium: membres.txt beside server.cfg keeps the server to its members
+    omsi_lan::members::watch(path);
     cfg.apply_to_mods();
     let _ = SERVER_VOICE.set(cfg.voice.clone());
     args.map = cfg.map.clone();
