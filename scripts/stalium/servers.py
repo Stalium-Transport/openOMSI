@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Stalium: writes the scrambled directory address of crates/omsi-app/src/stalium_bcs.rs.
-   python3 scripts/stalium/servers.py 82.165.67.127:27027
-(the web port of the Stalium server that holds bcs.txt). Prints the bytes to paste into DIRECTORY."""
-import sys, textwrap
+"""Stalium: the scrambled directory address for a local build (CI does the same from the
+GitHub secret STALIUM_ANNUAIRE). Prints the value for the STALIUM_ANNUAIRE_X variable:
+   set STALIUM_ANNUAIRE_X=<output>   (then cargo build)
+   python3 scripts/stalium/servers.py host:port"""
+import sys
 KEY = b"Stalium-BCS-2026"
 data = sys.argv[1].strip().encode()
-x = bytes(b ^ KEY[i % len(KEY)] for i, b in enumerate(data))
-print("\n".join("    " + l for l in textwrap.wrap(", ".join(f"0x{b:02x}" for b in x), 96)))
+print("".join(f"{b ^ KEY[i % len(KEY)]:02x}" for i, b in enumerate(data)))

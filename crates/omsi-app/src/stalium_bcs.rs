@@ -7,22 +7,26 @@
 //! `omsi_lan::bcs`) where this player goes on this map: `join …` gets `--lan-join`, anything
 //! else - not a member, a map without a server, no answer - is driven alone, as before. The
 //! maps, the ports and the members are the server's files (`bcs.txt`, `membres.txt`): they
-//! change with no new release. Only the directory's address is here, kept scrambled.
+//! change with no new release. The directory's address comes from the build (a secret),
+//! scrambled in the program and never in the source.
 
 use crate::cli::Args;
 use std::time::Duration;
 
 const KEY: &[u8] = b"Stalium-BCS-2026";
-/// The directory's `host:port` (a Stalium server's web port), XOR [`KEY`]
-/// (written by scripts/stalium/servers.py).
-const DIRECTORY: &[u8] = &[
-    0x6b, 0x46, 0x4f, 0x5d, 0x5f, 0x40, 0x43, 0x1b, 0x75, 0x6d, 0x62, 0x1f, 0x05, 0x0a, 0x00, 0x01,
-    0x63, 0x46, 0x56
-];
+/// The directory's `host:port` (a Stalium server's web port), XOR [`KEY`], in hexadecimal:
+/// given by the build (the GitHub secret STALIUM_ANNUAIRE, see .github/workflows/stalium.yml),
+/// never written in the source. A build without it never joins.
+const DIRECTORY: Option<&str> = option_env!("STALIUM_ANNUAIRE_X");
 
-fn directory() -> String {
-    let plain: Vec<u8> = DIRECTORY.iter().enumerate().map(|(i, b)| b ^ KEY[i % KEY.len()]).collect();
+fn unscramble(hex: &str) -> String {
+    let bytes: Vec<u8> = (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(hex.get(2 * i..2 * i + 2)?, 16).ok()).collect();
+    let plain: Vec<u8> = bytes.iter().enumerate().map(|(i, b)| b ^ KEY[i % KEY.len()]).collect();
     String::from_utf8_lossy(&plain).trim().to_string()
+}
+
+fn directory() -> Option<String> {
+    DIRECTORY.map(unscramble).filter(|d| d.contains(':'))
 }
 
 /// A start by BCS: its own personnel file `bbs\bbs.odr`.
@@ -74,7 +78,10 @@ pub(crate) fn apply(args: &mut Args) {
             args.lan_name = n;
         }
     }
-    let dir = directory();
+    let Some(dir) = directory() else {
+        log::info!("Stalium: BCS trip on {}: this build knows no Stalium directory, driven alone", args.map);
+        return;
+    };
     let url = format!("http://{dir}/stalium/bcs?carte={}&nom={}", encode(&args.map), encode(args.lan_name.trim()));
     let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(4)).timeout(Duration::from_secs(6)).build();
     let answer = match agent.get(&url).call().ok().and_then(|r| r.into_string().ok()) {
@@ -99,7 +106,8 @@ mod tests {
 
     #[test]
     fn answers() {
-        assert!(directory().contains(':'));
+        let hex: String = b"1.2.3.4:27027".iter().enumerate().map(|(i, b)| format!("{:02x}", b ^ KEY[i % KEY.len()])).collect();
+        assert_eq!(unscramble(&hex), "1.2.3.4:27027");
         assert_eq!(target("join 27017\n", "1.2.3.4:27027").as_deref(), Some("1.2.3.4:27017"));
         assert_eq!(target("join 5.6.7.8:27015", "1.2.3.4:27027").as_deref(), Some("5.6.7.8:27015"));
         assert_eq!(target("solo pas membre", "1.2.3.4:27027"), None);
