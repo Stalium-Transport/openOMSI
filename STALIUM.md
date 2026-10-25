@@ -22,11 +22,11 @@ Base : openOMSI 0.3.39 (protocole réseau 14, compatible avec openOMSI 0.3.37).
   `staffjson` de pedepe.de, revue toutes les 5 minutes, les conducteurs IA exclus).
   Code : `crates/omsi-app/src/stalium_bcs.rs`, `crates/omsi-lan/src/bcs.rs`.
 - **Mises à jour Stalium dans le lanceur** : le lanceur propose et installe les releases
-  `stalium-…` de ce dépôt, comme openOMSI le fait pour les siennes, et jamais la version
+  `stalium-…` de github.com/Stalium-Transport/openOMSI, comme openOMSI le fait pour les siennes, et jamais la version
   officielle (elle ne rejoindrait plus les serveurs Stalium).
 
 ## Compilation
 
-GitHub Actions, workflow `Stalium` (`.github/workflows/stalium.yml`) : chaque envoi sur la
-branche `stalium` compile le jeu et le serveur Windows et publie les zips dans les Releases
-(`stalium-0.3.39.<numéro>`).
+GitHub Actions, workflow `Stalium` (`.github/workflows/stalium.yml`), lancé à la main
+(Actions → Stalium → Run workflow) : il compile le jeu et le serveur Windows et publie les
+zips dans les Releases (`stalium-0.3.39.<numéro>`). Un envoi de code ne publie rien.
