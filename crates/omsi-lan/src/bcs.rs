@@ -108,7 +108,7 @@ pub fn unscramble(file: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&xor(&bytes)).into_owned())
 }
 
-const TEMPLATE: &str = "# Trajets BCS : une carte par ligne, carte = port (sur ce serveur) ou adresse:port\r\n# cle: <cle API BCS de l'entreprise> = seuls ses employes rejoignent (une ligne par entreprise)\r\n# Enregistre puis ferme le Bloc-notes : le fichier est chiffre a nouveau.\r\nmaps/st-servan/global.cfg = 27017\r\n";
+const TEMPLATE: &str = "# ================================================================\r\n#  bcs.txt - trajets BCS (Bus Company Simulator) vers vos serveurs\r\n# ================================================================\r\n#\r\n# Quand BCS lance un trajet avec la version Stalium d'openOMSI, le jeu\r\n# demande a ce serveur ou aller. Ce fichier donne la reponse.\r\n# Les lignes qui commencent par # sont des explications : elles ne\r\n# comptent pas. Retirez le # devant une ligne d'exemple pour l'utiliser.\r\n#\r\n# 1) LES CARTES : une ligne par carte, sous la forme\r\n#       carte = port\r\n#    ou carte = adresse:port\r\n#    - carte : le dossier de la carte dans OMSI, en minuscules,\r\n#      sous la forme maps/<dossier>/global.cfg\r\n#    - port seul : le serveur openOMSI de cette carte tourne sur la\r\n#      meme machine que celui-ci (son port de jeu, pas son port web)\r\n#    - adresse:port : le serveur de cette carte est sur une autre machine\r\n#    Une carte absente de la liste se joue en solo.\r\n#\r\n# maps/ma-carte/global.cfg = 27015\r\n# maps/autre-carte/global.cfg = adresse-du-serveur:27016\r\n#\r\n# 2) LES ENTREPRISES (facultatif) : une ligne par entreprise BCS\r\n#       cle: <cle API de l'entreprise>\r\n#    La cle se trouve dans BCS : Compagnie > API. Avec au moins une\r\n#    ligne cle:, seuls les employes de ces entreprises rejoignent le\r\n#    serveur ; les autres roulent en solo. Sans ligne cle:, tous les\r\n#    joueurs de cette version rejoignent.\r\n#    Chaque joueur doit avoir dans le lanceur openOMSI un profil\r\n#    conducteur au nom exact de son pseudo BCS.\r\n#\r\n# cle: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX\r\n#\r\n# Enregistrez puis fermez le Bloc-notes : le fichier est chiffre a\r\n# nouveau avec la cle Windows de ce serveur (illisible ailleurs).\r\n# Pour le modifier : openomsi.exe --stalium-bcs bcs.txt\r\n";
 
 /// `openomsi.exe --stalium-bcs <bcs.txt>`: the file opened readable in Notepad (the editor
 /// of $EDITOR elsewhere), scrambled again once it is closed. A missing file starts from an
@@ -304,6 +304,7 @@ mod tests {
         assert_eq!(unscramble(&f).as_deref(), Some("maps/a/global.cfg = 27017\r\n"));
         assert_eq!(unscramble("maps/a/global.cfg = 1"), None);
         assert_eq!(unscramble(TEMPLATE).map(|_| ()), None);
+        assert!(parse(TEMPLATE).is_empty() && keys(TEMPLATE).is_empty());
         assert_eq!(query_value("carte=maps%2FSt-Servan%2Fglobal.cfg&nom=Jean+Dupont", "nom"), "Jean Dupont");
         assert_eq!(query_value("carte=maps%2FSt-Servan%2Fglobal.cfg&nom=x", "carte"), "maps/St-Servan/global.cfg");
         assert_eq!(decode("a%"), "a%");
