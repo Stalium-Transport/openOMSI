@@ -56,6 +56,8 @@ pub(crate) fn prepare(args: &mut Args, path: &Path) -> Result<ServerCfg> {
     let _ = SERVER_VEHICLES.set(cfg.vehicles.clone());
     // Stalium: membres.txt beside server.cfg keeps the server to its members
     omsi_lan::members::watch(path);
+    // Stalium: bcs.txt beside server.cfg tells the Stalium game started by BCS where to go
+    omsi_lan::bcs::watch(path);
     cfg.apply_to_mods();
     args.map = cfg.map.clone();
     args.time = cfg.time.clone();

@@ -11,6 +11,7 @@
 
 pub mod admin;
 pub mod bans;
+pub mod bcs;
 pub mod commands;
 pub mod config;
 pub mod game;
