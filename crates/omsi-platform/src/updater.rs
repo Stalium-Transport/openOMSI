@@ -1,4 +1,5 @@
-//! Updates from the project's GitHub releases (github.com/openOMSI-org/openOMSI).
+//! Updates from the project's GitHub releases (Stalium: github.com/Michael75013/openOMSI,
+//! the releases `stalium-<version>` of the Stalium Transport version).
 //!
 //! A release a maintainer starts from main publishes `v<MAJOR.MINOR.PATCH>` with one archive
 //! per platform (see .github/workflows/release.yml). The launcher asks the GitHub API for the
@@ -46,12 +47,12 @@ mod unpack;
 pub use unpack::unpack;
 
 /// The project on GitHub.
-pub const REPO: &str = "openOMSI-org/openOMSI";
-pub const REPO_URL: &str = "https://github.com/openOMSI-org/openOMSI";
-const LATEST_API: &str = "https://api.github.com/repos/openOMSI-org/openOMSI/releases/latest";
-const RELEASES_API: &str = "https://api.github.com/repos/openOMSI-org/openOMSI/releases?per_page=100";
+pub const REPO: &str = "Michael75013/openOMSI";
+pub const REPO_URL: &str = "https://github.com/Michael75013/openOMSI";
+const LATEST_API: &str = "https://api.github.com/repos/Michael75013/openOMSI/releases/latest";
+const RELEASES_API: &str = "https://api.github.com/repos/Michael75013/openOMSI/releases?per_page=100";
 const RELEASE_PAGES: u32 = 5;
-const NEWEST_API: &str = "https://api.github.com/repos/openOMSI-org/openOMSI/releases?per_page=10";
+const NEWEST_API: &str = "https://api.github.com/repos/Michael75013/openOMSI/releases?per_page=10";
 pub const FIRST_SELF_TESTED: &str = "0.2.32";
 
 /// A build the App Store delivers (every iPhone and iPad build, and a Mac build made with
@@ -241,16 +242,22 @@ pub fn current_version() -> &'static str {
     crate::VERSION
 }
 
-/// `0.1.7` / `v0.1.7` as numbers (missing parts are 0).
+/// `0.1.7` / `v0.1.7` as numbers (missing parts are 0). Stalium: `stalium-0.3.39.7` (a
+/// release's tag) and `0.3.39-stalium.7` (the program's version) are both 0.3.39.7.
 fn version_parts(v: &str) -> Vec<u64> {
-    v.trim().trim_start_matches(['v', 'V']).split(['.', '-', '+']).map_while(|p| p.parse::<u64>().ok()).collect()
+    version_of_tag(v).split(['.', '-', '+']).filter(|p| *p != "stalium").map_while(|p| p.parse::<u64>().ok()).collect()
+}
+
+/// A release tag's version: `stalium-0.3.39.7` (or `v0.3.39`) is 0.3.39.7.
+fn version_of_tag(tag: &str) -> &str {
+    let t = tag.trim();
+    t.strip_prefix("stalium-").unwrap_or(t).trim_start_matches(['v', 'V'])
 }
 
 /// A pull request's test build: `release.yml` gives it the version `<release>-pr<number>`.
 pub fn is_test_build(version: &str) -> bool {
-    // (Stalium: its builds are never replaced by an official release, which would not
-    // join the Stalium servers)
-    version.contains("-pr") || version.contains("-stalium")
+    // (Stalium: its builds update from the Stalium releases only, see REPO)
+    version.contains("-pr")
 }
 
 /// Whether `candidate` is a newer version than `current`.
@@ -285,7 +292,7 @@ pub fn asset_name(version: &str) -> Option<String> {
     } else {
         return None;
     };
-    Some(format!("openOMSI-{version}-{suffix}"))
+    Some(format!("Stalium-openOMSI-{}-{suffix}", version_of_tag(version)))
 }
 
 // --- the release ----------------------------------------------------------------------------
@@ -420,10 +427,10 @@ fn latest_from_site() -> anyhow::Result<Option<Release>> {
     let page = format!("{REPO_URL}/releases/latest");
     let r = with_retries("asking github.com", || agent().head(&page).call()).map_err(|e| anyhow::anyhow!("{}", short_error(&e)))?;
     let tag = r.get_url().rsplit('/').next().unwrap_or("").to_string();
-    if !tag.starts_with(['v', 'V']) {
+    if !tag.starts_with("stalium-") {
         anyhow::bail!("github.com named no release ({})", r.get_url());
     }
-    let version = tag.trim_start_matches(['v', 'V']).to_string();
+    let version = version_of_tag(&tag).to_string();
     if is_test_build(current_version()) || !newer(&version, current_version()) || crate::recovery::is_bad(&version) {
         return Ok(None);
     }
@@ -464,7 +471,7 @@ fn newest_of(v: &serde_json::Value, current: &str, broken: &[String]) -> anyhow:
 /// A release described as the GitHub API does, when newer than `current`.
 fn parse_release(v: &serde_json::Value, current: &str, beta: bool) -> anyhow::Result<Option<Release>> {
     let tag = v["tag_name"].as_str().ok_or_else(|| anyhow::anyhow!("the release has no tag"))?;
-    let version = tag.trim_start_matches(['v', 'V']).to_string();
+    let version = version_of_tag(tag).to_string();
     if is_test_build(current) {
         log::info!("update check: {current} is a pull request's test build, {version} is not offered");
         return Ok(None);
@@ -488,7 +495,7 @@ fn parse_release(v: &serde_json::Value, current: &str, beta: bool) -> anyhow::Re
 
 fn release_of(v: &serde_json::Value) -> anyhow::Result<Option<Release>> {
     let tag = v["tag_name"].as_str().ok_or_else(|| anyhow::anyhow!("the release has no tag"))?;
-    let version = tag.trim_start_matches(['v', 'V']).to_string();
+    let version = version_of_tag(tag).to_string();
     let Some(want) = asset_name(&version) else { return Ok(None) };
     let Some(a) = v["assets"].as_array().and_then(|a| a.iter().find(|a| a["name"].as_str() == Some(want.as_str()))) else { return Ok(None) };
     Ok(Some(Release {
@@ -1088,6 +1095,17 @@ pub fn open_url(url: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stalium_versions_and_files() {
+        assert_eq!(version_parts("stalium-0.3.39.7"), [0, 3, 39, 7]);
+        assert_eq!(version_parts("0.3.39-stalium.7"), [0, 3, 39, 7]);
+        assert!(newer("0.3.39.8", "0.3.39-stalium.7") && !newer("0.3.39.7", "0.3.39-stalium.7"));
+        assert!(!is_test_build("0.3.39-stalium.7"));
+        if let Some(n) = asset_name("stalium-0.3.39.7") {
+            assert!(n.starts_with("Stalium-openOMSI-0.3.39.7-") && !n.contains("server"), "{n}");
+        }
+    }
 
     #[test]
     fn versions_compare_by_number() {
