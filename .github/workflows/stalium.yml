@@ -26,7 +26,7 @@ jobs:
       - name: Version
         shell: pwsh
         run: |
-          $base = "0.3.39"  # openOMSI release this branch is built on
+          $base = "0.3.41"  # openOMSI release this branch is built on
           # (numbers, then -stalium: the launcher takes the numbers, the updater leaves a
           # -stalium build alone)
           "OPENOMSI_VERSION=$base-stalium.${{ github.run_number }}" | Out-File -Append $env:GITHUB_ENV
@@ -130,4 +130,4 @@ jobs:
           rm out/tag.txt
           gh release create "$tag" out/*.zip -R "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "Stalium $tag" \
-            --notes "openOMSI Stalium Transport (base openOMSI 0.3.39, projet independant, AGPL-3.0), protocole 14. Jeu : un trajet BCS sur une carte Stalium rejoint le serveur Stalium tout seul. Code source : commit ${{ github.sha }} de la branche stalium."
+            --notes "openOMSI Stalium Transport (base openOMSI 0.3.41, projet independant, AGPL-3.0), protocole 15. Jeu : un trajet BCS sur une carte Stalium rejoint le serveur Stalium tout seul. Code source : commit ${{ github.sha }} de la branche stalium."

@@ -3,7 +3,8 @@
 Projet **indépendant**, basé sur [openOMSI](https://github.com/openOMSI-org/openOMSI)
 (licence AGPL-3.0). Ce n'est pas une version officielle d'openOMSI.
 
-Base : openOMSI 0.3.39 (protocole réseau 14, compatible avec openOMSI 0.3.37).
+Base : openOMSI 0.3.41 (protocole réseau 15, compatible avec openOMSI 0.3.40 et 0.3.41 ; plus avec
+les versions 0.3.39 et plus anciennes).
 
 ## Modifications
 
@@ -29,4 +30,4 @@ Base : openOMSI 0.3.39 (protocole réseau 14, compatible avec openOMSI 0.3.37).
 
 GitHub Actions, workflow `Stalium` (`.github/workflows/stalium.yml`), lancé à la main
 (Actions → Stalium → Run workflow) : il compile le jeu et le serveur Windows et publie les
-zips dans les Releases (`stalium-0.3.39.<numéro>`). Un envoi de code ne publie rien.
+zips dans les Releases (`stalium-0.3.41.<numéro>`). Un envoi de code ne publie rien.
