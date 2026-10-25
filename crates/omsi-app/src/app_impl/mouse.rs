@@ -544,6 +544,9 @@ impl App {
         // in another player's bus: a passenger, whose clicks work nothing of it (they
         // went to the driver's game, which worked its switches for them)
         if self.view == "foot" && self.net.inside_remote.is_some() {
+            // Stalium: a passenger's switch (stop request, door request, ramp...) goes to the
+            // driver's game, which works it if we are aboard (`passenger::may_work`)
+            self.stalium_passenger_click(pressed);
             return;
         }
         // a page (`[htmltexture]`) on a scenery object: pressed and released like the bus's own
@@ -706,6 +709,35 @@ impl App {
     }
 
     /// The ray under the cursor now (see [`Self::cockpit_cursor_ray`]).
+    /// Stalium: a click aboard another player's bus. The switch under the cursor, when it is
+    /// one passengers work, is sent to the driver's game as `trigger <name>`, and its release
+    /// as `trigger <name>_off`; any other switch tells the passenger it is the driver's.
+    fn stalium_passenger_click(&mut self, pressed: bool) {
+        static HELD: std::sync::Mutex<Option<(u32, String)>> = std::sync::Mutex::new(None);
+        let Some(owner) = self.net.inside_remote else { return };
+        if !pressed {
+            let held = HELD.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let (Some((to, ev)), Some(l)) = (held, self.net.lan.as_mut()) {
+                l.command(to, &format!("trigger {ev}_off"));
+            }
+            return;
+        }
+        let Some((o, d, spread)) = self.cursor_ray_now() else { return };
+        let Some(rv) = self.net.remotes.remotes.get(&owner) else { return };
+        let v = rv.vehicle();
+        let Some((i, _)) = crate::player::pick_in(v, o, d, spread, crate::player::Reach::ANY) else { return };
+        let Some(ev) = v.ty.meshes.get(i).and_then(|m| v.ty.model.meshes.get(m.def_index)).and_then(|m| m.mouse_event.as_ref()).map(|e| e.trim().to_string()).filter(|e| !e.is_empty()) else { return };
+        if !omsi_lan::passenger::passenger_trigger(&ev) {
+            self.service_msg = Some(("Seul le conducteur peut utiliser ce bouton".into(), 2.0));
+            return;
+        }
+        if let Some(l) = self.net.lan.as_mut() {
+            log::info!("LAN: we work {ev} in player {owner}'s bus");
+            l.command(owner, &format!("trigger {ev}"));
+            *HELD.lock().unwrap_or_else(|e| e.into_inner()) = Some((owner, ev));
+        }
+    }
+
     pub(crate) fn cursor_ray_now(&self) -> Option<(glam::DVec3, glam::Vec3, f32)> {
         let (cam, s) = self.camera.as_ref().zip(self.gfx.surface.as_ref())?;
         Some(self.cockpit_cursor_ray(cam, (s.config.width, s.config.height)))

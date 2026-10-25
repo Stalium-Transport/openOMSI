@@ -10,7 +10,19 @@ pub fn inside(f: &Footprint, local: [f32; 3]) -> bool {
 pub fn passenger_trigger(name: &str) -> bool {
     let n = name.trim().to_ascii_lowercase();
     let n = n.strip_suffix("_off").unwrap_or(&n);
-    n.starts_with("int_") || n.contains("haltewunsch") || n.contains("kinderwagenwunsch")
+    // (Stalium: the driver's switch that turns the stop requests off is not a passenger's)
+    if n.contains("deaktiv") {
+        return false;
+    }
+    n.starts_with("int_") || n.contains("haltewunsch") || n.contains("kinderwagenwunsch") || stalium_passenger_trigger(n)
+}
+
+/// Stalium: the passengers' buttons of other buses' makers, found in the Stalium fleet - a
+/// door's request (`door_2_wunsch`, `door_3_wunsch_aussen`), the ramp's (`door_rampenwunsch`,
+/// `ramplift_wunsch`, `RampRequestButtonPressed`), a stop request or bell by another name
+/// (`door_stoprequest_1`, `StopBell`, `DisabledStopbell`). Never a cockpit's (`cp_...`).
+fn stalium_passenger_trigger(n: &str) -> bool {
+    !n.starts_with("cp_") && !n.starts_with("dash_") && (n.contains("wunsch") || n.contains("stoprequest") || n.contains("ramprequest") || n.contains("stopbell"))
 }
 
 /// May player `from` work switch `ev` of our bus `bus` (`lan`: our session)? Only a passenger
@@ -46,5 +58,12 @@ mod tests {
         assert!(!passenger_trigger("bus_doorfront0"));
         assert!(!passenger_trigger("handbrake"));
         assert!(!passenger_trigger("engine_start"));
+        // Stalium
+        for n in ["door_2_wunsch", "door_3_wunsch_aussen", "door_rampenwunsch", "ramplift_wunsch", "RampRequestButtonPressed", "door_stoprequest_1", "StopBell", "DisabledStopbell", "door_behindiwunsch_off"] {
+            assert!(passenger_trigger(n), "{n}");
+        }
+        for n in ["cp_Haltewunsch_deaktiviert", "cp_sprechwunsch", "cp_stop_request_toggle_a", "Ticketer_Ticket1Tapped", "cp_batterietrennschalter_toggle", "EngineStop", "INEO_Keypad_Valid"] {
+            assert!(!passenger_trigger(n), "{n}");
+        }
     }
 }
