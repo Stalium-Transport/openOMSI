@@ -20,7 +20,6 @@ pub mod host;
 mod join;
 pub mod mirror;
 pub mod map_pack;
-pub mod members;
 pub mod mods;
 pub mod passenger;
 pub mod public_list;

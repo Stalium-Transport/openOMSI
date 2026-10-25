@@ -54,8 +54,6 @@ pub(crate) fn prepare(args: &mut Args, path: &Path) -> Result<ServerCfg> {
     omsi_lan::bans::install(omsi_lan::bans::BanStore::open(Some(cfg.dir.join("bans.json")), cfg.owner_bans.clone().or_else(omsi_lan::bans::BanStore::default_owner_path)));
     crate::real_time::set_server_real(cfg.real_time);
     let _ = SERVER_VEHICLES.set(cfg.vehicles.clone());
-    // Stalium: membres.txt beside server.cfg keeps the server to its members
-    omsi_lan::members::watch(path);
     // Stalium: bcs.txt beside server.cfg tells the Stalium game started by BCS where to go
     omsi_lan::bcs::watch(path);
     cfg.apply_to_mods();

@@ -143,7 +143,6 @@ impl Offscreen<'_> {
         if i.is_multiple_of(super::steps_in(1.0)) {
             if let Some(l) = lan_off.as_mut() {
                 crate::server::enforce_vehicles(l);
-                omsi_lan::members::enforce(l);
                 crate::server::tick_status(l, parse_time(&args.time) + *srv_clock + srv_admin.shift, srv_weather_name.as_str());
                 // the shared world, counted for GET /status
                 let (cars, buses, dormant, parked) = traffic.as_ref().map(|t| t.counts()).unwrap_or_default();

@@ -247,6 +247,11 @@ pub fn run() -> Result<()> {
         let rest: Vec<String> = std::env::args().skip(2).collect();
         return check::run(&rest, crate::startup::find_root);
     }
+    // Stalium: `--stalium-bcs <bcs.txt>` opens the server's scrambled BCS directory to edit
+    if std::env::args().nth(1).as_deref() == Some("--stalium-bcs") {
+        let path = std::env::args().nth(2).map(std::path::PathBuf::from).unwrap_or_else(|| "bcs.txt".into());
+        return omsi_lan::bcs::edit(&path).map_err(|e| anyhow::anyhow!(e));
+    }
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     // a panic goes into the log (which the launcher keeps per session) with where it
     // happened and a backtrace, not only to a terminal that may not be there

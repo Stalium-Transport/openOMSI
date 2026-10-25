@@ -5,9 +5,8 @@
 //! `--no-menu` and the trip's situation. On such a start, with no LAN option of its own, the
 //! game asks the Stalium directory (`/stalium/bcs` on a Stalium server, see
 //! `omsi_lan::bcs`) where this player goes on this map: `join …` gets `--lan-join`, anything
-//! else - not a member, a map without a server, no answer - is driven alone, as before. The
-//! maps, the ports and the members are the server's files (`bcs.txt`, `membres.txt`): they
-//! change with no new release. The directory's address comes from the build (a secret),
+//! else - a map without a server, no answer - is driven alone, as before. The maps and the
+//! ports are the server's file (`bcs.txt`, scrambled): they change with no new release. The directory's address comes from the build (a secret),
 //! scrambled in the program and never in the source.
 
 use crate::cli::Args;
