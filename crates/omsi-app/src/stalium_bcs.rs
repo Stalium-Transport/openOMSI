@@ -4,12 +4,11 @@
 //! BCS starts the game with its own personnel file (`--driver …\\.openomsi\\bbs\\bbs.odr`),
 //! `--no-menu` and the trip's situation. On such a start, with no LAN option of its own,
 //! the map of the trip is looked up in the list below: a Stalium map gets
-//! `--lan-join <server>` and the driver's name from the personnel file; any other map is
+//! `--lan-join <server>` and the player's openOMSI profile name; any other map is
 //! driven alone, as before. The list is kept scrambled so that it is no file for the
 //! players to read (it is no secret either: the server's address is public).
 
 use crate::cli::Args;
-use std::path::Path;
 
 const KEY: &[u8] = b"Stalium-BCS-2026";
 /// `map=host:port`, one a line, XOR [`KEY`] (written by scripts/stalium/servers.py).
@@ -62,19 +61,22 @@ pub(crate) fn apply(args: &mut Args) {
     };
     log::info!("Stalium: BCS trip on {}: joining the Stalium server", args.map);
     args.lan_join = Some(addr);
+    // BCS's personnel file is named "Bus Company Simulator" for every player: the name is
+    // the driver profile chosen in openOMSI's launcher, else the Windows account's
     let given = args.lan_name.trim();
     if given.is_empty() || given == "Driver" {
-        let name = args
-            .driver
-            .as_deref()
-            .and_then(|d| omsi_content::driver::Driver::load(Path::new(d)).ok())
-            .map(|d| d.name.trim().to_string())
-            .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("bbs") && n != "Driver")
-            .or_else(|| std::env::var("USERNAME").ok().filter(|u| !u.trim().is_empty()));
+        let profile = omsi_launcher_lib::load_config().profile.trim().to_string();
+        let name = Some(profile)
+            .filter(|n| usable_name(n))
+            .or_else(|| std::env::var("USERNAME").ok().map(|u| u.trim().to_string()).filter(|u| usable_name(u)));
         if let Some(n) = name {
             args.lan_name = n;
         }
     }
+}
+
+fn usable_name(n: &str) -> bool {
+    !n.is_empty() && n != "Driver" && !n.eq_ignore_ascii_case("bbs") && !n.eq_ignore_ascii_case("Bus Company Simulator")
 }
 
 #[cfg(test)]
