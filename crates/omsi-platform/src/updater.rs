@@ -248,7 +248,9 @@ fn version_parts(v: &str) -> Vec<u64> {
 
 /// A pull request's test build: `release.yml` gives it the version `<release>-pr<number>`.
 pub fn is_test_build(version: &str) -> bool {
-    version.contains("-pr")
+    // (Stalium: its builds are never replaced by an official release, which would not
+    // join the Stalium servers)
+    version.contains("-pr") || version.contains("-stalium")
 }
 
 /// Whether `candidate` is a newer version than `current`.

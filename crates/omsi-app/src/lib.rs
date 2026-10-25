@@ -44,6 +44,7 @@ mod update_watch;
 use omsi_platform::presence;
 use omsi_soundscape::ambience;
 mod soundscape;
+mod stalium_bcs;
 use omsi_scene::wheel_surface;
 use omsi_scene::camera_arm;
 use omsi_vehicle::cam_approach;
@@ -461,6 +462,8 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         args.situation = Some(tutorial::SITUATIONS[n - 1].to_string());
     }
     apply_situation(&mut args)?;
+    // Stalium: a BCS trip on a Stalium map joins the Stalium server by itself
+    stalium_bcs::apply(&mut args);
     // `openomsi`: the official server, wherever its tunnel is today (see omsi_net::official)
     if let Some(t) = args.lan_join.clone().filter(|t| omsi_net::official::is_alias(t)) {
         match omsi_net::official::resolve_target(&t) {
