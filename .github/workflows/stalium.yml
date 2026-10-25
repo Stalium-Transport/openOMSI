@@ -8,6 +8,11 @@ name: Stalium
 on:
   # by hand only: Actions -> Stalium -> Run workflow (a push publishes nothing)
   workflow_dispatch:
+    inputs:
+      changements:
+        description: "Ce qui change dans cette version (separer les changements par ;). Vide : le texte de NOTES-VERSION.md"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -122,12 +127,41 @@ jobs:
         with:
           name: stalium-windows-x64
           path: out
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: NOTES-VERSION.md
+          sparse-checkout-cone-mode: false
+          path: src
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          CHANGEMENTS: ${{ inputs.changements }}
         run: |
           tag="$(tr -d '\r\n\357\273\277' < out/tag.txt)"
           rm out/tag.txt
+          version="${tag#stalium-}"
+          {
+            echo "## Stalium Transport ${version}"
+            echo
+            echo "### Ce qui change"
+            echo
+            if [ -n "$(echo "$CHANGEMENTS" | tr -d ' ;')" ]; then
+              echo "$CHANGEMENTS" | tr ';' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | sed 's/^/- /'
+            elif [ -s src/NOTES-VERSION.md ]; then
+              grep -v '^<!--' src/NOTES-VERSION.md
+            else
+              echo "- Corrections et améliorations."
+            fi
+            echo
+            echo "### Installer"
+            echo
+            echo "- **Joueurs** : \`Stalium-openOMSI-${version}-windows-x64.zip\`, à décompresser ; dans BCS, choisir ce dossier. Une version Stalium déjà installée se met à jour toute seule dans le lanceur."
+            echo "- **Serveur** : \`Stalium-openOMSI-${version}-server-windows-x64.zip\` (garder \`server.cfg\` et \`bcs.txt\`)."
+            echo
+            echo "---"
+            echo "openOMSI Stalium Transport : projet indépendant basé sur openOMSI 0.3.41 (AGPL-3.0), protocole réseau 15. Code source : commit ${{ github.sha }} de la branche stalium."
+          } > notes.md
+          cat notes.md
           gh release create "$tag" out/*.zip -R "${{ github.repository }}" --target "${{ github.sha }}" \
-            --title "Stalium $tag" \
-            --notes "openOMSI Stalium Transport (base openOMSI 0.3.41, projet independant, AGPL-3.0), protocole 15. Jeu : un trajet BCS sur une carte Stalium rejoint le serveur Stalium tout seul. Code source : commit ${{ github.sha }} de la branche stalium."
+            --title "Stalium Transport ${version}" \
+            --notes-file notes.md
