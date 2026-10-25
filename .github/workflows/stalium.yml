@@ -1,0 +1,81 @@
+# Stalium Transport: builds the Windows dedicated server of this fork (openOMSI with the
+# Stalium changes) and publishes it as a release.
+#   - Actions -> Stalium -> Run workflow: builds the branch chosen there
+#   - pushing a tag stalium-<version> (e.g. stalium-0.3.39.1): builds it and publishes the
+#     release with the zip
+# Independent project based on openOMSI (AGPL-3.0): not an official openOMSI release.
+name: Stalium
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["stalium-*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  server-windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        shell: pwsh
+        run: |
+          $base = (Get-Content VERSION -Raw).Trim()
+          if ("${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".Substring(8) } else { $v = "$base-stalium-dev" }
+          "OPENOMSI_VERSION=$v-stalium" | Out-File -Append $env:GITHUB_ENV
+          "### Stalium (openOMSI) $v" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: stalium-${{ env.TARGET }}
+      - name: Tests (Stalium)
+        run: cargo test --locked --release --target ${{ env.TARGET }} -p omsi-lan --lib members
+      - name: Build
+        run: cargo build --locked --release --target ${{ env.TARGET }} -p omsi-app
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/server, out | Out-Null
+          Copy-Item "target/$env:TARGET/release/openomsi.exe", assets/steam_redist/steam_api64.dll, scripts/server/start.cmd, scripts/server/run-server.cmd, scripts/server/run-server.ps1, LICENSE dist/server/
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue | Sort-Object FullName | Select-Object -Last 1
+          $dir = if ($crt) { $crt.FullName } else { "$env:SystemRoot\System32" }
+          foreach ($dll in "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll") { Copy-Item (Join-Path $dir $dll) dist/server/ }
+          Copy-Item docs/SERVER.md dist/server/README.md
+          New-Item -ItemType File -Force dist/server/.openomsi-content | Out-Null
+          "# Membres Stalium : un nom par ligne (renommer en membres.txt pour activer)`r`n# Michael`r`nmessage: Serveur reserve aux membres Stalium Transport : inscris-toi sur notre Discord`r`n" | Out-File -Encoding utf8 dist/server/membres.exemple.txt
+          Compress-Archive -Path dist/server/* -DestinationPath "out/Stalium-openOMSI-$env:OPENOMSI_VERSION-server-windows-x64.zip"
+          Get-ChildItem out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stalium-server-windows-x64
+          path: out/*.zip
+
+  release:
+    needs: server-windows
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: stalium-server-windows-x64
+          path: out
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" out/*.zip -R "${{ github.repository }}" \
+            --title "Stalium ${{ github.ref_name }}" \
+            --notes "Serveur dedie Stalium Transport (base openOMSI, projet independant, AGPL-3.0). Protocole 14, compatible avec openOMSI 0.3.37. Code source : branche/tag ${{ github.ref_name }} de ce depot."
