@@ -13,7 +13,7 @@ Base : openOMSI 0.3.39 (protocole réseau 14, compatible avec openOMSI 0.3.37).
   Code : `crates/omsi-lan/src/members.rs`.
 - **Trajets BCS sur le serveur Stalium** : quand BCS (Busbetrieb-Simulator) lance le jeu
   (fiche `bbs\bbs.odr`) pour un trajet sur une carte Stalium, le jeu rejoint le serveur
-  Stalium tout seul, avec le nom du conducteur. Il n'y a rien à régler dans BCS : on choisit
+  Stalium tout seul, avec le nom du profil conducteur choisi dans le lanceur openOMSI (la fiche BCS porte le même nom « Bus Company Simulator » pour tous). Il n'y a rien à régler dans BCS : on choisit
   juste le dossier de cette version. Les autres cartes se jouent en solo, comme avant. La
   liste des serveurs est dans le programme, pas dans un fichier (`scripts/stalium/servers.py`).
   Code : `crates/omsi-app/src/stalium_bcs.rs`.
