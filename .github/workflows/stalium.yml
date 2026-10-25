@@ -61,6 +61,7 @@ jobs:
         run: |
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-lan --lib bcs
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-app --lib stalium_bcs
+          cargo test --locked --release --target ${{ env.TARGET }} -p omsi-platform --lib stalium_versions
       - name: Build (game, launcher)
         shell: cmd
         run: scripts\build-windows.cmd %TARGET%

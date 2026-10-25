@@ -21,8 +21,9 @@ Base : openOMSI 0.3.39 (protocole réseau 14, compatible avec openOMSI 0.3.37).
   ces entreprises rejoignent (le nom du profil openOMSI doit être le pseudo BCS ; liste
   `staffjson` de pedepe.de, revue toutes les 5 minutes, les conducteurs IA exclus).
   Code : `crates/omsi-app/src/stalium_bcs.rs`, `crates/omsi-lan/src/bcs.rs`.
-- **Pas de mise à jour automatique vers la version officielle** (elle ne rejoindrait plus
-  les serveurs Stalium).
+- **Mises à jour Stalium dans le lanceur** : le lanceur propose et installe les releases
+  `stalium-…` de ce dépôt, comme openOMSI le fait pour les siennes, et jamais la version
+  officielle (elle ne rejoindrait plus les serveurs Stalium).
 
 ## Compilation
 
