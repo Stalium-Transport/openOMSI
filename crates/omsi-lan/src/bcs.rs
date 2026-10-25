@@ -16,12 +16,20 @@
 //! maps/st-servan/global.cfg      = 27017
 //! maps/berlin-spandau/global.cfg = 27021
 //! maps/autre/global.cfg          = 1.2.3.4:27015
+//! cle: <the company's BCS API key>
 //! ```
+//!
+//! With one `cle:` line or more (a company each), only the staff of those companies joins:
+//! the player's name (its openOMSI profile) must be the `username` of one of their
+//! employees in BCS (pedepe.de's `staffjson`, asked again every 5 minutes at most). Without
+//! any, every player of the Stalium game joins.
 //!
 //! No `bcs.txt` (or one that does not open here): the directory is off (404).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// The file's name, beside `server.cfg`.
 pub const FILE_NAME: &str = "bcs.txt";
@@ -100,7 +108,7 @@ pub fn unscramble(file: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&xor(&bytes)).into_owned())
 }
 
-const TEMPLATE: &str = "# Trajets BCS : une carte par ligne, carte = port (sur ce serveur) ou adresse:port\r\n# Enregistre puis ferme le Bloc-notes : le fichier est brouille a nouveau.\r\nmaps/st-servan/global.cfg = 27017\r\n";
+const TEMPLATE: &str = "# Trajets BCS : une carte par ligne, carte = port (sur ce serveur) ou adresse:port\r\n# cle: <cle API BCS de l'entreprise> = seuls ses employes rejoignent (une ligne par entreprise)\r\n# Enregistre puis ferme le Bloc-notes : le fichier est chiffre a nouveau.\r\nmaps/st-servan/global.cfg = 27017\r\n";
 
 /// `openomsi.exe --stalium-bcs <bcs.txt>`: the file opened readable in Notepad (the editor
 /// of $EDITOR elsewhere), scrambled again once it is closed. A missing file starts from an
@@ -138,11 +146,79 @@ pub fn canonical_map(map: &str) -> String {
 pub fn parse(text: &str) -> Vec<(String, String)> {
     text.lines()
         .map(|l| l.trim().trim_start_matches('\u{feff}'))
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && company_key(l).is_none())
         .filter_map(|l| l.split_once('='))
         .map(|(m, t)| (canonical_map(m), t.trim().to_string()))
         .filter(|(m, t)| !m.is_empty() && !t.is_empty())
         .collect()
+}
+
+/// A `cle: …` (or `key: …`) line's API key.
+fn company_key(line: &str) -> Option<String> {
+    let (k, v) = line.split_once(':')?;
+    matches!(k.trim().to_lowercase().as_str(), "cle" | "clé" | "key").then(|| v.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// The companies' API keys of a `bcs.txt`.
+pub fn keys(text: &str) -> Vec<String> {
+    text.lines().map(|l| l.trim().trim_start_matches('\u{feff}')).filter(|l| !l.starts_with('#')).filter_map(company_key).collect()
+}
+
+/// The players among a `staffjson` answer's employees (BCS's own AI drivers left out), as
+/// names compare: lower case, no spaces at the ends.
+pub fn staff_names(json: &str) -> Option<Vec<String>> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let list = v.get("employees")?.as_array()?;
+    Some(
+        list.iter()
+            .filter_map(|e| e.get("username")?.as_str())
+            .map(|n| n.trim().to_lowercase())
+            .filter(|n| !n.is_empty() && !n.starts_with("(ai)"))
+            .collect(),
+    )
+}
+
+const STAFF_AGE: Duration = Duration::from_secs(300);
+/// Per key: when its staff was last asked for, and the names (kept when pedepe.de does not
+/// answer later).
+static STAFF: Mutex<Option<HashMap<String, (Instant, Vec<String>)>>> = Mutex::new(None);
+
+fn staff_of(key: &str) -> Vec<String> {
+    {
+        let g = STAFF.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, names)) = g.as_ref().and_then(|m| m.get(key)) {
+            if at.elapsed() < STAFF_AGE {
+                return names.clone();
+            }
+        }
+    }
+    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(4)).timeout(Duration::from_secs(8)).build();
+    let fresh = agent
+        .get("https://pedepe.de/api/api.php")
+        .query("key", key)
+        .query("request", "staffjson")
+        .call()
+        .ok()
+        .and_then(|r| r.into_string().ok())
+        .and_then(|t| staff_names(&t));
+    let mut g = STAFF.lock().unwrap_or_else(|e| e.into_inner());
+    let m = g.get_or_insert_with(HashMap::new);
+    match fresh {
+        Some(names) => {
+            m.insert(key.to_string(), (Instant::now(), names.clone()));
+            names
+        }
+        None => {
+            log::warn!("server: BCS : pedepe.de ne donne pas le personnel d'une entreprise (cle fausse ou site injoignable)");
+            m.get(key).map(|(_, n)| n.clone()).unwrap_or_default()
+        }
+    }
+}
+
+/// Whether `name` may join: no key, everybody; else an employee of one of the companies.
+fn employed(keys: &[String], name: &str) -> bool {
+    let n = name.trim().to_lowercase();
+    keys.is_empty() || (!n.is_empty() && keys.iter().any(|k| staff_of(k).contains(&n)))
 }
 
 fn decode(s: &str) -> String {
@@ -193,7 +269,7 @@ fn answer(path: &str) -> Option<(&'static str, String)> {
     };
     let map = query_value(query, "carte");
     let name = query_value(query, "nom");
-    let a = route(&parse(&text), &map);
+    let a = if employed(&keys(&text), &name) { route(&parse(&text), &map) } else { "solo pas employe de l'entreprise".into() };
     log::info!("server: BCS : '{}' sur {} -> {a}", name.trim(), canonical_map(&map));
     Some(("200 OK", a))
 }
@@ -216,6 +292,13 @@ mod tests {
         assert_eq!(route(&r, "maps/st-servan/global.cfg"), "join 27017");
         assert_eq!(route(&r, "Maps/Berlin-Spandau/global.cfg"), "join 1.2.3.4:27021");
         assert!(route(&r, "maps/grundorf/global.cfg").starts_with("solo"));
+        let t = "maps/a/global.cfg = 1\r\ncle: ABC-1\r\n# cle: off\r\nKey : XYZ\r\n";
+        assert_eq!(keys(t), ["ABC-1", "XYZ"]);
+        assert_eq!(parse(t).len(), 1);
+        assert!(employed(&[], "n'importe qui"));
+        let staff = r#"{"employees":[{"employeeId":1,"username":"Michael75","title":"-"},{"employeeId":2,"username":"(AI) Vera S."}],"openApplications":0}"#;
+        assert_eq!(staff_names(staff), Some(vec!["michael75".to_string()]));
+        assert_eq!(staff_names("<html>"), None);
         let f = scramble("maps/a/global.cfg = 27017\r\n");
         assert!((f.starts_with(MARK) || f.starts_with(MARK_SEALED)) && !f.contains("27017") && !f.contains("maps"));
         assert_eq!(unscramble(&f).as_deref(), Some("maps/a/global.cfg = 27017\r\n"));
