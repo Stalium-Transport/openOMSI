@@ -1,15 +1,16 @@
 # Stalium Transport: builds the Windows dedicated server of this fork (openOMSI with the
 # Stalium changes) and publishes it as a release.
-#   - Actions -> Stalium -> Run workflow: builds the branch chosen there
-#   - pushing a tag stalium-<version> (e.g. stalium-0.3.39.1): builds it and publishes the
-#     release with the zip
+#   - every push to the branch stalium: builds it and publishes the release
+#     stalium-<VERSION>.<run number> (e.g. stalium-0.3.39.4) with the zip
+#   - Actions -> Stalium -> Run workflow: the same, by hand
 # Independent project based on openOMSI (AGPL-3.0): not an official openOMSI release.
 name: Stalium
 
 on:
   workflow_dispatch:
   push:
-    tags: ["stalium-*"]
+    branches: [stalium]
+    paths-ignore: ["*.md", "docs/**"]
 
 permissions:
   contents: read
@@ -28,8 +29,8 @@ jobs:
       - name: Version
         shell: pwsh
         run: |
-          $base = (Get-Content VERSION -Raw).Trim()
-          if ("${{ github.ref_type }}" -eq "tag") { $v = "${{ github.ref_name }}".Substring(8) } else { $v = "$base-stalium-dev" }
+          $base = "0.3.39"  # openOMSI release this branch is built on
+          $v = "$base.${{ github.run_number }}"
           "OPENOMSI_VERSION=$v-stalium" | Out-File -Append $env:GITHUB_ENV
           "### Stalium (openOMSI) $v" | Out-File -Append $env:GITHUB_STEP_SUMMARY
       - uses: dtolnay/rust-toolchain@stable
@@ -63,7 +64,6 @@ jobs:
 
   release:
     needs: server-windows
-    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -76,6 +76,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" out/*.zip -R "${{ github.repository }}" \
-            --title "Stalium ${{ github.ref_name }}" \
-            --notes "Serveur dedie Stalium Transport (base openOMSI, projet independant, AGPL-3.0). Protocole 14, compatible avec openOMSI 0.3.37. Code source : branche/tag ${{ github.ref_name }} de ce depot."
+          tag="stalium-$(ls out | sed -E 's/.*-([0-9.]+)-stalium-server.*/\1/')"
+          gh release create "$tag" out/*.zip -R "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "Stalium $tag" \
+            --notes "Serveur dedie Stalium Transport (base openOMSI, projet independant, AGPL-3.0). Protocole 14, compatible avec openOMSI 0.3.37. Code source : commit ${{ github.sha }} de la branche stalium."
