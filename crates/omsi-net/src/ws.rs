@@ -561,6 +561,16 @@ const ADMIN_LOCK_WINDOW: Duration = Duration::from_secs(120);
 /// `CF-Connecting-IP`, not the last `X-Forwarded-For` (an edge's): `gateway_proxy_header`.
 static CF_FIRST: AtomicBool = AtomicBool::new(false);
 
+/// Stalium: GET routes the program answers itself under `/stalium/` (the path with its
+/// query in, the status and a plain-text body out; None: not found).
+pub type ExtraRoute = fn(&str) -> Option<(&'static str, String)>;
+static EXTRA_ROUTE: std::sync::OnceLock<ExtraRoute> = std::sync::OnceLock::new();
+
+/// Set the program's `/stalium/` routes (once).
+pub fn set_extra_route(f: ExtraRoute) {
+    let _ = EXTRA_ROUTE.set(f);
+}
+
 /// Believe `CF-Connecting-IP` before `X-Forwarded-For` (`gateway_proxy_header =
 /// cf-connecting-ip`): only with Cloudflare in front, which writes it over the client's own.
 pub fn believe_cf_connecting_ip(on: bool) {
@@ -705,7 +715,12 @@ fn serve(stream: TcpStream, slot: Option<SourceSlot>, target: SocketAddr, info: 
             s.write_all(&r.body).map_err(|e| e.to_string())?;
             return Ok(());
         }
+        let route = path.split('?').next().unwrap_or("");
         let (status, ctype, body): (&str, &str, Vec<u8>) = match path.as_str() {
+            _ if route.starts_with("/stalium/") => match EXTRA_ROUTE.get().and_then(|f| f(&path)) {
+                Some((status, text)) => (status, "text/plain; charset=utf-8", text.into_bytes()),
+                None => ("404 Not Found", "text/plain", b"not found".to_vec()),
+            },
             "/admin" => {
                 read_body(&mut s, &mut request, deadline);
                 let (status, text) = local_admin(&request, peer, info);
@@ -1480,5 +1495,10 @@ mod tests {
         gw.info.lock().unwrap().player_list = vec![PlayerInfo { id: 1, name: "p".into(), ..Default::default() }];
         let r = get("/players");
         assert!(r.starts_with("HTTP/1.1 200") && r.ends_with("\"lat\":null,\"lon\":null}]"), "{r}");
+        // Stalium: the program's own /stalium/ routes, with their query
+        assert!(get("/stalium/bcs?carte=x").starts_with("HTTP/1.1 404"));
+        set_extra_route(|p| p.starts_with("/stalium/bcs?").then(|| ("200 OK", format!("got {p}"))));
+        let r = get("/stalium/bcs?carte=maps%2Fa&nom=b");
+        assert!(r.starts_with("HTTP/1.1 200") && r.ends_with("got /stalium/bcs?carte=maps%2Fa&nom=b"), "{r}");
     }
 }
