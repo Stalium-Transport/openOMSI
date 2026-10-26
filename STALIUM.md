@@ -25,6 +25,17 @@ les versions 0.3.39 et plus anciennes).
 - **Mises à jour Stalium dans le lanceur** : le lanceur propose et installe les releases
   `stalium-…` de github.com/Stalium-Transport/openOMSI, comme openOMSI le fait pour les siennes, et jamais la version
   officielle (elle ne rejoindrait plus les serveurs Stalium).
+- **Échange de bus entre deux joueurs** : menu du jeu → Liste des joueurs → un joueur →
+  « Échanger nos bus ». L'autre accepte ou refuse dans sa liste des joueurs (30 s). Accepté,
+  chaque jeu prend le bus de l'autre là où il est, dans l'état où l'autre l'avait (fichier,
+  peinture, toutes les variables et textes du script : IBIS, girouette…), avec ses passagers
+  à leur place ; le service (ligne, course) reste à chaque joueur. Seulement entre deux bus à
+  l'arrêt, à moins de 200 m l'un de l'autre, hors trajet BCS, et quand le bus de l'autre est
+  installé chez soi et proposé par le serveur. Les messages passent par les commandes entre
+  joueurs (via le serveur, envoyés 3 fois) : pas de changement de protocole, mais les deux
+  joueurs doivent avoir une version qui le connaît.
+  Code : `crates/omsi-app/src/stalium_swap.rs` (+ `player_list.rs`, `app_impl/vehicles.rs`,
+  `lan_world.rs` `stalium_riders_of`, `omsi-sim` `PeopleSim::seat_handed_riders`).
 
 ## Compilation
 

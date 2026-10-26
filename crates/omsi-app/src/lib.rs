@@ -46,6 +46,7 @@ use omsi_soundscape::ambience;
 mod soundscape;
 mod stalium_bcs;
 mod stalium_server;
+mod stalium_swap;
 use omsi_scene::wheel_surface;
 use omsi_scene::camera_arm;
 use omsi_vehicle::cam_approach;

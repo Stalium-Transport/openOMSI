@@ -357,3 +357,27 @@ fn nothing_owed_draws_where_the_ticks_say() {
     }
     assert_eq!(lag.behind(0.004, 0.0), 0.004);
 }
+
+/// Stalium: the riders handed over with a bus another player drove take their own places in
+/// the player's bus - another free one when theirs is taken or beyond this cabin - and no
+/// more of them than the cabin holds; places the bus left behind passed on with its cabin
+/// (`player_bus_swapped`) are free again.
+#[test]
+fn handed_riders_take_their_places() {
+    use crate::people::model::State;
+    let (bus, mut people) = bus_and_people();
+    let world = crate::world_data::WorldData::default();
+    people.seats.insert(crate::people::BusId::Player, vec![true; 6]);
+    let riders = [(Some(0), Some(2)), (None, Some(2)), (Some(0), Some(40)), (Some(9), None)];
+    assert_eq!(people.seat_handed_riders(&riders, &bus, &world), 4);
+    let mut places: Vec<usize> = people.people.iter().filter_map(|p| match &p.state {
+        State::Pax(x) => x.seat,
+        _ => None,
+    }).collect();
+    assert!(places.contains(&2), "the first rider has their own place: {places:?}");
+    places.sort_unstable();
+    places.dedup();
+    assert_eq!(places.len(), 4, "every rider has a place of their own");
+    assert!(people.people.iter().all(|p| matches!(p.place, crate::people::model::Place::Bus(crate::people::BusId::Player, _))));
+    assert_eq!(people.seat_handed_riders(&[(None, None); 5], &bus, &world), 2, "six places in all");
+}

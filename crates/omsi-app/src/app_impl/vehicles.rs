@@ -45,7 +45,7 @@ impl App {
             return;
         }
         let bus = bus.to_string();
-        let (Some(w), Some(r), Some(cam)) = (self.world.clone(), self.renderer.as_ref(), self.camera.as_ref()) else { return };
+        let (Some(_), Some(_), Some(cam)) = (self.world.as_ref(), self.renderer.as_ref(), self.camera.as_ref()) else { return };
         let (x, y, heading) = match (self.view.as_str(), self.player.as_ref()) {
             (_, Some(p)) if swap => (p.vehicle.position.x, p.vehicle.position.y, p.vehicle.heading),
             ("free", _) | (_, None) => {
@@ -79,6 +79,15 @@ impl App {
             hof: hof.or(self.args.hof.clone()),
             ..self.args.clone()
         };
+        let replace = self.player.as_ref().filter(|_| swap).map(|p| p.uid);
+        log::info!("placing {bus} at ({x:.1}, {y:.1}){}", if swap { " in the driven vehicle's place" } else { "" });
+        self.start_placement(one, name, replace, heading, None);
+    }
+
+    /// Read the vehicle of `one` on a worker thread (`placement` puts it into the world once
+    /// it is ready): in the place of the driven vehicle `replace`, or beside it.
+    pub(crate) fn start_placement(&mut self, one: Args, name: String, replace: Option<u64>, heading: f64, swap: Option<(u32, Vec<(String, Option<u8>)>)>) {
+        let (Some(w), Some(r)) = (self.world.clone(), self.renderer.as_ref()) else { return };
         let prefetch = w.placement_prefetch(r);
         let worker_args = one.clone();
         let (tx, receiver) = std::sync::mpsc::channel();
@@ -93,15 +102,15 @@ impl App {
         });
         match worker {
             Ok(_) => {
-                log::info!("placing {bus} at ({x:.1}, {y:.1}){}", if swap { " in the driven vehicle's place" } else { "" });
                 self.menus.pending_placement = Some(crate::spawn::PendingPlacement {
                     receiver,
                     world: w,
                     args: one,
                     name,
-                    replace: self.player.as_ref().filter(|_| swap).map(|p| p.uid),
+                    replace,
                     reload: false,
                     heading,
+                    swap,
                 });
                 self.service_msg = Some(("Loading vehicle...".into(), 4.0));
             }
@@ -222,9 +231,17 @@ pub(crate) fn placement(mut cx: PlacementCx) {
         return;
     }
     if let Some(uid) = pending.replace {
-        let Some(p) = cx.player.player.as_ref().filter(|p| p.uid == uid) else { return };
-        // (where the bus driven stands now: it may have moved while the other was read)
-        pending.args.spawn = Some(format!("{},{},{}", p.vehicle.position.x, p.vehicle.position.y, p.vehicle.heading));
+        let Some(p) = cx.player.player.as_ref().filter(|p| p.uid == uid) else {
+            if let Some((partner, _)) = pending.swap {
+                log::warn!("Stalium: swap with player {partner}: our bus is no longer driven, the swap is dropped");
+            }
+            return;
+        };
+        // (where the bus driven stands now: it may have moved while the other was read -
+        // not for a bus taken over from another player, which goes where theirs stood)
+        if pending.swap.is_none() {
+            pending.args.spawn = Some(format!("{},{},{}", p.vehicle.position.x, p.vehicle.position.y, p.vehicle.heading));
+        }
     }
     let (Some(r), Some(scene)) = (cx.gfx.renderer.as_ref(), cx.gfx.scene.as_mut()) else { return };
     let start = Instant::now();
@@ -234,6 +251,19 @@ pub(crate) fn placement(mut cx: PlacementCx) {
         Ok(Some(q)) if pending.replace.is_some() => {
             let name = format!("{} {}", q.vehicle.ty.def.manufacturer, q.vehicle.ty.def.type_name);
             replace_driven_vehicle(q, &mut cx);
+            if let Some((partner, riders)) = pending.swap.take() {
+                // (Stalium: the riders of the bus taken over, in their places)
+                let seated = match (cx.people.humans.as_mut(), cx.player.player.as_ref()) {
+                    (Some(h), Some(p)) => {
+                        let wanted: Vec<(Option<usize>, Option<usize>)> = riders.iter().map(|(file, seat)| (h.type_by_file(file), seat.map(usize::from))).collect();
+                        h.seat_handed_riders(&wanted, &p.vehicle, &pending.world)
+                    }
+                    _ => 0,
+                };
+                log::info!("Stalium: swap with player {partner}: we drive their {} now, {seated} of {} riders in their places", name.trim(), riders.len());
+                *cx.ui.service_msg = Some((format!("Échange fait : vous conduisez maintenant le {} ({seated} passager(s))", name.trim()), 6.0));
+                return;
+            }
             *cx.ui.service_msg = Some(if pending.reload {
                 (format!("Reloaded {} from its files", name.trim()), 4.0)
             } else {

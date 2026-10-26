@@ -8,4 +8,9 @@
 - Un joueur à pied dans le bus d'un autre peut de nouveau appuyer sur les boutons des passagers : demande d'arrêt, poussette, demande de porte (`door_2_wunsch`…), demande de rampe, sonnette. Le conducteur reçoit l'appui dans son bus.
 - Les boutons du conducteur (portes, moteur, billettique, SAE, cockpit) restent réservés au conducteur, ainsi que le bouton qui coupe les demandes d'arrêt.
 
+**Échanger son bus avec un autre joueur**
+- Menu du jeu → Liste des joueurs → choisir le joueur → « Échanger nos bus ». Il accepte ou refuse dans sa propre liste des joueurs (30 secondes pour répondre).
+- Accepté, chacun prend le bus de l'autre là où il se trouve, tel que l'autre l'avait (peinture, IBIS, girouette, réglages du conducteur…), avec ses passagers à leur place. La ligne et la course restent à chacun.
+- Possible seulement entre deux bus à l'arrêt, à moins de 200 m l'un de l'autre, en dehors d'un trajet BCS, et si le bus de l'autre est installé sur votre PC.
+
 **Rappel** : le serveur et les joueurs doivent avoir la même version (protocole réseau 15).

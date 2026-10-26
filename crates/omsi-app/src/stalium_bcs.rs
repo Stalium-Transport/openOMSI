@@ -29,7 +29,7 @@ fn directory() -> Option<String> {
 }
 
 /// A start by BCS: its own personnel file `bbs\bbs.odr`.
-fn started_by_bcs(args: &Args) -> bool {
+pub(crate) fn started_by_bcs(args: &Args) -> bool {
     args.driver.as_deref().map(|d| d.replace('\\', "/").to_lowercase().ends_with("bbs/bbs.odr")).unwrap_or(false)
 }
 

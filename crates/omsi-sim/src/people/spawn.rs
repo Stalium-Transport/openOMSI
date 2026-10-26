@@ -733,6 +733,82 @@ impl PeopleSim {
         }
     }
 
+    /// Stalium: the riders of a bus another player drove, handed over with it (two players
+    /// swapped their buses, see the game's `stalium_swap`): each of human type `kind` (None:
+    /// any) on place `place` of the player's bus as that player had them - another free place
+    /// when it is taken, beyond this cabin or shut off - sitting or standing there at once,
+    /// riding on 1..20 km as `seed_riders`' do (their destinations stayed in the other game).
+    /// Returns how many found a place.
+    pub fn seat_handed_riders(&mut self, riders: &[(Option<usize>, Option<usize>)], bus: &VehicleInstance, world: &dyn World) -> usize {
+        let Some(cabin) = self.cabin_for(bus) else { return 0 };
+        let trailers = part_frames(bus, &cabin);
+        let rot = bus.body_rotation();
+        let off = places_off(bus, &cabin);
+        let n = cabin.seats.len();
+        // (the places taken as the people aboard hold them now: the bus left behind passed
+        // its own on with its cabin when the two were alike, see `player_bus_swapped`, and
+        // its riders have gone with it)
+        let mut held = vec![false; n];
+        for p in &self.people {
+            if let State::Pax(x) = &p.state {
+                if x.bus == Some(BusId::Player) || x.inside == Some(BusId::Player) {
+                    if let Some(k) = x.seat.filter(|k| *k < n) {
+                        held[k] = true;
+                    }
+                }
+            }
+        }
+        self.seats.insert(BusId::Player, held);
+        let mut seated = 0;
+        for &(kind, place) in riders {
+            let taken = self.seats.entry(BusId::Player).or_insert_with(|| vec![false; n]);
+            if taken.len() < n {
+                taken.resize(n, false);
+            }
+            let k = match place.filter(|k| *k < n && !taken[*k] && !off.get(*k).copied().unwrap_or(false)) {
+                Some(k) => {
+                    taken[k] = true;
+                    k
+                }
+                None => match self.reserve_place(BusId::Player, &cabin.seats, &off) {
+                    Some(k) => k,
+                    None => break,
+                },
+            };
+            let walk = 1.1 + (self.rand_f() as f32 * 2.0 - 1.0) * 0.2;
+            let r = self.rand_f() as f32;
+            let mut pax = Pax::new(walk, self.rand_f());
+            pax.bus = Some(BusId::Player);
+            pax.inside = Some(BusId::Player);
+            pax.seat = Some(k);
+            pax.ride_km = r * 19.0 + 1.0;
+            pax.task = Task::InBusToPlace;
+            let at = train_point(bus.position, &rot, &trailers, cabin.seats[k].pos);
+            let kind = kind.filter(|t| *t < self.types.len());
+            let Some(i) = self.spawn_as(world, at, bus.heading, State::Pax(Box::new(pax)), kind) else {
+                self.free_seat(BusId::Player, k);
+                break;
+            };
+            let s = cabin.seats[k].clone();
+            let seatheight = self.people[i].ty.def.seat_height;
+            if let Some(p) = self.pax_mut(i) {
+                p.task = Task::SittingInBus;
+                p.st = 0;
+                if s.seated {
+                    p.seat_h = s.height;
+                    p.pos = (s.pos - Vec3::Z * seatheight).as_dvec3();
+                    p.pax_state = 2.0;
+                } else {
+                    p.pos = s.pos.as_dvec3();
+                }
+                p.yaw = (s.rot as f64).to_radians();
+            }
+            self.people[i].place = Place::Bus(BusId::Player, s.pos);
+            seated += 1;
+        }
+        seated
+    }
+
     /// Give back what a person holds (a waiting place, a seat) before they change plans.
     pub fn release(&mut self, i: usize) {
         let id = self.people[i].id;

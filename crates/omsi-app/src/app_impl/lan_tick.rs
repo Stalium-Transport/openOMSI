@@ -20,6 +20,7 @@ impl App {
                 p.vehicle.host.capture_sound_triggers = false;
                 p.vehicle.host.network_sound_triggers.clear();
             }
+            crate::stalium_swap::reset();
             return;
         };
         let duty = self
@@ -95,6 +96,7 @@ impl App {
         for (from, text) in cmds {
             self.lan_command(from, &text);
         }
+        crate::stalium_swap::tick(self, dt);
         crate::admin_panel::tick(self);
         crate::player_list::tick(self);
         self.tick_voice(dt);
@@ -106,6 +108,11 @@ impl App {
         use omsi_lan::commands::Command;
         if let Some(request) = text.strip_prefix("pax_request ") {
             self.receive_passenger_door_request(from, request);
+            return;
+        }
+        // Stalium: two players swapping their buses (`stalium_swap`)
+        if let Some(rest) = text.strip_prefix("stalium_swap ") {
+            crate::stalium_swap::receive(self, from, rest);
             return;
         }
         // a plugin's message to the same plugin here (`lan.send`)

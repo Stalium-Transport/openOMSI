@@ -201,6 +201,34 @@ pub struct LanWorld {
 
 
 impl LanWorld {
+    /// Stalium: the riders of player `player`'s bus as they last came here - their human
+    /// file and their place in its cabin - from the host's world frames (a client) or from
+    /// that player's own people (the host). Used when two players swap their buses
+    /// (`stalium_swap`): the riders go with the bus.
+    pub(crate) fn stalium_riders_of(&self, player: u32) -> Vec<(String, Option<u8>)> {
+        let bus = nw::PLAYER_BUS | player;
+        let aboard = |s: &PersonState| match s.place {
+            PersonPlace::Aboard { bus: b, seat, .. } if b == bus => Some(seat),
+            _ => None,
+        };
+        let mut out = Vec::new();
+        for (id, track) in &self.mirror.people {
+            let Some(seat) = track.samples.last().and_then(|s| aboard(&s.v)) else { continue };
+            if let Some(Desc::Person { file, .. }) = self.mirror.descs.get(&(true, *id)) {
+                out.push((file.clone(), seat));
+            }
+        }
+        if let Some(up) = self.ups.get(&player) {
+            for (pid, track) in &up.tracks {
+                let Some(seat) = track.samples.last().and_then(|s| aboard(&s.v)) else { continue };
+                if let Some(file) = up.files.get(pid) {
+                    out.push((file.clone(), seat));
+                }
+            }
+        }
+        out
+    }
+
     /// Once a frame, after `LanSession::tick`.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(

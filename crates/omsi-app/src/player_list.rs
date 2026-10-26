@@ -95,6 +95,12 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
     match kind {
         ListKind::PlayerList => {
             let mut out = vec![noop(format!("{} ({})", tr("Players in this session"), list.len()))];
+            // Stalium: another player asks to swap buses with us
+            if let Some((who, name)) = crate::stalium_swap::offer() {
+                out.push(noop(format!("{name} (#{who}) propose d'échanger vos bus")));
+                out.push(("Accepter l'échange de bus".into(), "swapyes".into()));
+                out.push(("Refuser l'échange de bus".into(), "swapno".into()));
+            }
             out.push((format!("{}: {}", tr("Voice chat of everybody else"), if app.settings.voice_all_off { tr("off") } else { tr("on") }), "vall".into()));
             for p in &list {
                 let you = if p.id == my_id { format!(" ({})", tr("you")) } else { String::new() };
@@ -131,6 +137,14 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
                     (tr("Voice chat: audible. Mute them"), format!("vmute {}", t.tag()))
                 },
             ];
+            // Stalium: swap our buses (`stalium_swap`), or withdraw the request
+            if p.id != my_id {
+                if crate::stalium_swap::asked() == Some(p.id) {
+                    out.push(("Demande d'échange envoyée : l'annuler".into(), format!("swapcancel {}", t.tag())));
+                } else {
+                    out.push(("Échanger nos bus".into(), format!("swapask {}", t.tag())));
+                }
+            }
             // (an admin's: silencing a player's voice for the whole session, or taking them away)
             let acts = rights.is_some() && !(rights == Some(Role::Moderator) && p.admin == Some(Role::Admin));
             if acts {
@@ -250,6 +264,20 @@ pub(crate) fn run(app: &mut App, kind: &ListKind, action: &str) -> Option<ListKi
             crate::game_lists::remember_setting("voice_all_off", &(app.settings.voice_all_off as u8).to_string());
             Some(ListKind::PlayerList)
         }
+        // Stalium: swapping buses with another player
+        "swapask" => {
+            let t = target()?;
+            crate::stalium_swap::ask(app, t.id);
+            Some(ListKind::PlayerPage(t))
+        }
+        "swapcancel" => {
+            crate::stalium_swap::cancel(app);
+            target().map(ListKind::PlayerPage).or(Some(ListKind::PlayerList))
+        }
+        "swapyes" | "swapno" => {
+            crate::stalium_swap::answer(app, verb == "swapyes");
+            Some(ListKind::PlayerList)
+        }
         "bans" => Some(ListKind::BanList),
         "list" | "back" => Some(ListKind::PlayerList),
         "noop" => Some(kind.clone()),
@@ -279,10 +307,11 @@ pub(crate) fn tick(app: &mut App) {
         return;
     }
     let sig: Vec<(u32, u64, PlayerState)> = players(app).iter().map(|p| (p.id, p.conn, p.state)).collect();
-    let bans = bans(app).len();
+    // (and the bus swaps asked of us and by us: their lines come and go)
+    let bans = (bans(app).len(), crate::stalium_swap::offer().map(|o| o.0), crate::stalium_swap::asked());
     let key = (sig, bans);
     thread_local! {
-        static SEEN: std::cell::RefCell<Option<(Vec<(u32, u64, PlayerState)>, usize)>> = const { std::cell::RefCell::new(None) };
+        static SEEN: std::cell::RefCell<Option<(Vec<(u32, u64, PlayerState)>, (usize, Option<u32>, Option<u32>))>> = const { std::cell::RefCell::new(None) };
     }
     let changed = SEEN.with(|s| {
         let mut s = s.borrow_mut();

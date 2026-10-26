@@ -157,6 +157,10 @@ pub(crate) struct PendingPlacement {
     /// The driven vehicle read again from its files (the menu's reload).
     pub(crate) reload: bool,
     pub(crate) heading: f64,
+    /// Stalium (`stalium_swap`): the bus another player drove, taken over where it stands
+    /// (`args.spawn` is kept, not moved to where ours stands), with its riders (their human
+    /// file and place) and that player's id.
+    pub(crate) swap: Option<(u32, Vec<(String, Option<u8>)>)>,
 }
 
 /// Choose the player's fleet number and registration before the script VM runs `{init}`.

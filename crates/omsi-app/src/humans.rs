@@ -111,6 +111,12 @@ impl Humans {
         self.sim.seed_riders(n, bus, &*world.data());
     }
 
+    /// Stalium: the riders of a bus taken over from another player (see
+    /// `PeopleSim::seat_handed_riders`).
+    pub fn seat_handed_riders(&mut self, riders: &[(Option<usize>, Option<usize>)], bus: &VehicleInstance, world: &World) -> usize {
+        self.sim.seat_handed_riders(riders, bus, &*world.data())
+    }
+
     /// OMSI's `change_take`: the driver takes back the coins lying on the change tray.
     pub fn take_change_tray(&mut self) {
         if let Some(m) = self.sim.money.as_mut() {
