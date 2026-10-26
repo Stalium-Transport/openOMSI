@@ -13,10 +13,14 @@
 //! (not a stand-in nor a copy fetched from the server only to be drawn) and offered by the
 //! server. Each game checks its own side again before it answers or swaps.
 //!
+//! In two steps, so that both games check the rules at the last moment: the asked game says
+//! yes and waits; the asking game checks everything again and then says go and swaps; the
+//! asked game swaps on that go (or, without it within [`GO_SECS`], not at all).
+//!
 //! The messages go through the session's player commands (`LanSession::command`, through the
 //! server), which may be lost: each is sent [`REPEATS`] times and taken once
-//! (`stalium_swap ask|yes|no|cancel <nonce> [reason]`). A game without this answers nothing:
-//! the request runs out.
+//! (`stalium_swap ask|yes|go|no|cancel <nonce> [reason]`). A game without this answers
+//! nothing: the request runs out.
 
 use crate::App;
 use std::sync::Mutex;
@@ -28,6 +32,8 @@ pub(crate) const STILL_KMH: f32 = 1.0;
 /// The two buses at most this far apart (m): riders are shared only near (`CAR_RADIUS`), and
 /// the drivers meet to swap.
 pub(crate) const NEAR_M: f64 = 200.0;
+/// How long the asked game waits for the go after its yes (s).
+pub(crate) const GO_SECS: f32 = 10.0;
 /// Each message is sent this many times, [`REPEAT_GAP`] seconds apart.
 const REPEATS: usize = 3;
 const REPEAT_GAP: f32 = 0.4;
@@ -37,6 +43,7 @@ const REPEAT_GAP: f32 = 0.4;
 pub(crate) enum Msg {
     Ask(u64),
     Yes(u64),
+    Go(u64),
     No(u64, String),
     Cancel(u64),
 }
@@ -46,6 +53,7 @@ impl Msg {
         match self {
             Msg::Ask(n) => format!("stalium_swap ask {n}"),
             Msg::Yes(n) => format!("stalium_swap yes {n}"),
+            Msg::Go(n) => format!("stalium_swap go {n}"),
             Msg::No(n, why) => format!("stalium_swap no {n} {}", why.trim()).trim_end().to_string(),
             Msg::Cancel(n) => format!("stalium_swap cancel {n}"),
         }
@@ -60,6 +68,7 @@ impl Msg {
         match verb {
             "ask" => Some(Msg::Ask(nonce)),
             "yes" => Some(Msg::Yes(nonce)),
+            "go" => Some(Msg::Go(nonce)),
             "no" => Some(Msg::No(nonce, why)),
             "cancel" => Some(Msg::Cancel(nonce)),
             _ => None,
@@ -68,7 +77,7 @@ impl Msg {
 
     fn nonce(&self) -> u64 {
         match self {
-            Msg::Ask(n) | Msg::Yes(n) | Msg::No(n, _) | Msg::Cancel(n) => *n,
+            Msg::Ask(n) | Msg::Yes(n) | Msg::Go(n) | Msg::No(n, _) | Msg::Cancel(n) => *n,
         }
     }
 
@@ -76,6 +85,7 @@ impl Msg {
         match self {
             Msg::Ask(_) => "ask",
             Msg::Yes(_) => "yes",
+            Msg::Go(_) => "go",
             Msg::No(..) => "no",
             Msg::Cancel(_) => "cancel",
         }
@@ -98,6 +108,8 @@ pub(crate) struct State {
     pub(crate) asked: Option<Pending>,
     /// A request to us, waiting for ours.
     pub(crate) offer: Option<Pending>,
+    /// A request to us we said yes to, waiting for the go.
+    pub(crate) accepted: Option<Pending>,
     /// Messages still to be sent again: (when, to whom, text).
     queue: Vec<(f32, u32, String)>,
     /// Messages taken already (sender, verb, nonce): their repeats are dropped.
@@ -160,7 +172,9 @@ fn name_of(app: &App, who: u32) -> String {
     app.net.remotes.remotes.get(&who).map(|r| r.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| format!("joueur #{who}"))
 }
 
-/// Why we may not swap with player `who` now (None: we may).
+/// Why we may not swap with player `who` now (None: we may). Each game checks its own side
+/// (its bus, its BCS trip) and the distance between the two: asking, answering, and again
+/// just before the go (`receive`).
 pub(crate) fn why_not(app: &App, who: u32) -> Option<String> {
     let Some(lan) = app.net.lan.as_ref() else { return Some("pas de partie multijoueur".into()) };
     if who == lan.my_id {
@@ -234,8 +248,11 @@ pub(crate) fn answer(app: &mut App, accept: bool) {
         app.service_msg = Some((format!("Échange impossible : {why}"), 6.0));
         return;
     }
+    // (the swap waits for their go: their game checks everything again first)
     send(app, o.who, &Msg::Yes(o.nonce));
-    take_over(app, o.who, &o.name);
+    log::info!("Stalium: we accept player {}'s swap ({}): waiting for their go", o.who, o.nonce);
+    app.service_msg = Some((format!("Échange accepté : en attente de la confirmation de {}...", o.name), GO_SECS));
+    with(|s| s.accepted = Some(Pending { since: s.clock, ..o }));
 }
 
 /// A `stalium_swap …` command from player `from`.
@@ -276,12 +293,31 @@ pub(crate) fn receive(app: &mut App, from: u32, rest: &str) {
                 log::info!("Stalium: player {from} accepts a swap we no longer ask for ({n}): ignored");
                 return;
             };
-            // (they swap already: ours goes now, whatever changed meanwhile - had we stayed
-            // as we were, both of us would drive our own bus there again)
+            // (the rules once more, at the last moment: they swap only on our go)
             if let Some(why) = why_not(app, from) {
-                log::warn!("Stalium: player {from} accepted the swap, but here {why}: swapping anyway");
+                log::info!("Stalium: player {from} accepted the swap, but now {why}: called off");
+                send(app, from, &Msg::Cancel(n));
+                app.service_msg = Some((format!("Échange annulé : {why}"), 6.0));
+                return;
             }
+            send(app, from, &Msg::Go(n));
             take_over(app, from, &a.name);
+        }
+        Msg::Go(n) => {
+            let ours = with(|s| match s.accepted.take() {
+                Some(o) if o.who == from && o.nonce == n => Some(o),
+                other => {
+                    s.accepted = other;
+                    None
+                }
+            });
+            let Some(o) = ours else {
+                log::info!("Stalium: player {from} says go for a swap we are not waiting for ({n}): ignored");
+                return;
+            };
+            // (they have checked everything and swap now: ours goes too, else both of us
+            // would drive their bus)
+            take_over(app, from, &o.name);
         }
         Msg::No(n, why) => {
             let ours = with(|s| match s.asked.take() {
@@ -298,12 +334,16 @@ pub(crate) fn receive(app: &mut App, from: u32, rest: &str) {
             }
         }
         Msg::Cancel(n) => {
-            let ours = with(|s| match s.offer.take() {
-                Some(o) if o.who == from && o.nonce == n => true,
-                other => {
-                    s.offer = other;
-                    false
+            let ours = with(|s| {
+                let mine = |p: &Option<Pending>| p.as_ref().is_some_and(|o| o.who == from && o.nonce == n);
+                let hit = mine(&s.offer) || mine(&s.accepted);
+                if mine(&s.offer) {
+                    s.offer = None;
                 }
+                if mine(&s.accepted) {
+                    s.accepted = None;
+                }
+                hit
             });
             if ours {
                 app.service_msg = Some((format!("{name} a annulé sa demande d'échange"), 4.0));
@@ -314,14 +354,15 @@ pub(crate) fn receive(app: &mut App, from: u32, rest: &str) {
 
 /// Once a frame (LAN play): the repeats, and the requests that ran out.
 pub(crate) fn tick(app: &mut App, dt: f32) {
-    let (due, expired_ask, expired_offer) = with(|s| {
+    let (due, expired_ask, expired_offer, expired_go) = with(|s| {
         s.clock += dt.max(0.0);
         let now = s.clock;
         let due: Vec<(u32, String)> = s.queue.iter().filter(|q| q.0 <= now).map(|q| (q.1, q.2.clone())).collect();
         s.queue.retain(|q| q.0 > now);
         let expired_ask = s.asked.take_if(|a| now - a.since > ANSWER_SECS + 5.0);
         let expired_offer = s.offer.take_if(|o| now - o.since > ANSWER_SECS);
-        (due, expired_ask, expired_offer)
+        let expired_go = s.accepted.take_if(|o| now - o.since > GO_SECS);
+        (due, expired_ask, expired_offer, expired_go)
     });
     if let Some(l) = app.net.lan.as_mut() {
         for (to, text) in &due {
@@ -331,6 +372,10 @@ pub(crate) fn tick(app: &mut App, dt: f32) {
     if let Some(a) = expired_ask {
         send(app, a.who, &Msg::Cancel(a.nonce));
         app.service_msg = Some((format!("{} n'a pas répondu à la demande d'échange", a.name), 5.0));
+    }
+    if let Some(o) = expired_go {
+        log::info!("Stalium: no go from player {} for the swap ({}): not swapped", o.who, o.nonce);
+        app.service_msg = Some((format!("L'échange avec {} n'a pas abouti", o.name), 5.0));
     }
     if let Some(o) = expired_offer {
         send(app, o.who, &Msg::No(o.nonce, "pas de réponse".into()));
@@ -385,7 +430,7 @@ mod tests {
 
     #[test]
     fn messages_read_back() {
-        for m in [Msg::Ask(7), Msg::Yes(7), Msg::No(7, "votre bus doit être à l'arrêt".into()), Msg::No(9, String::new()), Msg::Cancel(12)] {
+        for m in [Msg::Ask(7), Msg::Yes(7), Msg::Go(7), Msg::No(7, "votre bus doit être à l'arrêt".into()), Msg::No(9, String::new()), Msg::Cancel(12)] {
             let text = m.text();
             let rest = text.strip_prefix("stalium_swap ").unwrap();
             assert_eq!(Msg::parse(rest), Some(m), "{text}");

@@ -11,6 +11,7 @@
 **Échanger son bus avec un autre joueur**
 - Menu du jeu → Liste des joueurs → choisir le joueur → « Échanger nos bus ». Il accepte ou refuse dans sa propre liste des joueurs (30 secondes pour répondre).
 - Accepté, chacun prend le bus de l'autre là où il se trouve, tel que l'autre l'avait (peinture, IBIS, girouette, réglages du conducteur…), avec ses passagers à leur place. La ligne et la course restent à chacun.
-- Possible seulement entre deux bus à l'arrêt, à moins de 200 m l'un de l'autre, en dehors d'un trajet BCS, et si le bus de l'autre est installé sur votre PC.
+- Possible seulement entre deux bus à l'arrêt, à moins de 200 m l'un de l'autre, et si le bus de l'autre est installé sur votre PC. Les deux jeux revérifient ces règles juste avant l'échange.
+- Jamais pendant un trajet BCS : un joueur en trajet BCS ne peut ni demander ni accepter un échange (son relevé BCS de km, carburant et tickets serait faussé).
 
 **Rappel** : le serveur et les joueurs doivent avoir la même version (protocole réseau 15).

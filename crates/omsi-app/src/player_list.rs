@@ -139,7 +139,10 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
             ];
             // Stalium: swap our buses (`stalium_swap`), or withdraw the request
             if p.id != my_id {
-                if crate::stalium_swap::asked() == Some(p.id) {
+                if crate::stalium_bcs::started_by_bcs(&app.args) {
+                    // (BCS keeps its own record of the trip - km, fuel, tickets - by the bus)
+                    out.push(noop("Échange de bus impossible pendant un trajet BCS".into()));
+                } else if crate::stalium_swap::asked() == Some(p.id) {
                     out.push(("Demande d'échange envoyée : l'annuler".into(), format!("swapcancel {}", t.tag())));
                 } else {
                     out.push(("Échanger nos bus".into(), format!("swapask {}", t.tag())));
