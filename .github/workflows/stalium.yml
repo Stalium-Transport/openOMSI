@@ -2,6 +2,8 @@
 # with the Stalium changes) and publishes them as a release.
 #   - Actions -> Stalium -> Run workflow (by hand only): builds them and publishes the
 #     release stalium-<VERSION>.<run number> (e.g. stalium-0.3.39.4) with the zips
+#   - with "test" ticked: the zips only as the run's artifact (Actions -> the run ->
+#     Artifacts, for the repository's members), no release - nobody's game updates to it
 # Independent project based on openOMSI (AGPL-3.0): not an official openOMSI release.
 name: Stalium
 
@@ -13,6 +15,11 @@ on:
         description: "Ce qui change dans cette version (separer les changements par ;). Vide : le texte de NOTES-VERSION.md"
         required: false
         default: ""
+      test:
+        description: "Version de test : zips seulement dans Actions (Artifacts), PAS de release"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -37,6 +44,7 @@ jobs:
           "OPENOMSI_VERSION=$base-stalium.${{ github.run_number }}" | Out-File -Append $env:GITHUB_ENV
           "STALIUM_TAG=stalium-$base.${{ github.run_number }}" | Out-File -Append $env:GITHUB_ENV
           "### Stalium (openOMSI) $base.${{ github.run_number }}" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          if ("${{ inputs.test }}" -eq "true") { "Version de test (branche ${{ github.ref_name }}) : pas de release, zips dans Artifacts ci-dessous" | Out-File -Append $env:GITHUB_STEP_SUMMARY }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.TARGET }}
@@ -63,6 +71,7 @@ jobs:
         run: |
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-lan --lib bcs
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-app --lib stalium_bcs
+          cargo test --locked --release --target ${{ env.TARGET }} -p omsi-app --lib stalium_swap
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-platform --lib stalium_versions
       - name: Build (game, launcher)
         shell: cmd
@@ -116,9 +125,12 @@ jobs:
         with:
           name: stalium-windows-x64
           path: out/*
+          retention-days: ${{ inputs.test && 14 || 90 }}
 
   release:
     needs: windows
+    # (a test build is not published: its zips stay in the run's artifacts)
+    if: ${{ !inputs.test }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

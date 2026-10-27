@@ -43,5 +43,9 @@ GitHub Actions, workflow `Stalium` (`.github/workflows/stalium.yml`), lancé à 
 (Actions → Stalium → Run workflow) : il compile le jeu et le serveur Windows et publie les
 zips dans les Releases (`stalium-0.3.41.<numéro>`). Un envoi de code ne publie rien.
 
+Version de test : dans Run workflow, choisir la branche à tester et cocher « Version de test ».
+Les zips restent dans la page de l'exécution (Artifacts, 14 jours, visibles des membres du
+dépôt connectés) : pas de release, donc aucun jeu de joueur ne se met à jour vers elle.
+
 Le texte de la release vient de `NOTES-VERSION.md` (à mettre à jour avant chaque release), ou du
 champ « changements » de Run workflow s'il est rempli (changements séparés par `;`).
