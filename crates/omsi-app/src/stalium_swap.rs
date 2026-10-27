@@ -172,47 +172,108 @@ fn name_of(app: &App, who: u32) -> String {
     app.net.remotes.remotes.get(&who).map(|r| r.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| format!("joueur #{who}"))
 }
 
+/// Why a swap cannot be done now, said to this player (`mine`) or sent to the other one
+/// (`theirs`: the same reason seen from their side).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Reason {
+    NoSession,
+    Myself,
+    /// Not at the wheel of one's own bus: on foot (got up), in another player's bus, or
+    /// without a bus.
+    NotAtWheel,
+    Bcs,
+    Loading,
+    OwnBusMoving,
+    OtherBusNotHere,
+    OtherBusMoving,
+    TooFar,
+    OtherBusNotInstalled,
+    OtherBusNotOffered,
+}
+
+impl Reason {
+    pub(crate) fn mine(self) -> String {
+        match self {
+            Reason::NoSession => "pas de partie multijoueur".into(),
+            Reason::Myself => "c'est vous".into(),
+            Reason::NotAtWheel => "retournez au volant de votre bus (G près du poste de conduite, ou Échap → Retour à mon bus)".into(),
+            Reason::Bcs => "pas pendant un trajet BCS".into(),
+            Reason::Loading => "un véhicule est déjà en cours de chargement".into(),
+            Reason::OwnBusMoving => "votre bus doit être à l'arrêt".into(),
+            Reason::OtherBusNotHere => "son bus n'est pas encore arrivé dans votre jeu".into(),
+            Reason::OtherBusMoving => "son bus doit être à l'arrêt".into(),
+            Reason::TooFar => format!("vos bus doivent être à moins de {NEAR_M:.0} m l'un de l'autre"),
+            Reason::OtherBusNotInstalled => "son bus n'est pas installé sur votre PC".into(),
+            Reason::OtherBusNotOffered => "le serveur ne propose pas son bus".into(),
+        }
+    }
+
+    pub(crate) fn theirs(self) -> String {
+        match self {
+            Reason::NoSession | Reason::Myself => "impossible".into(),
+            Reason::NotAtWheel => "il n'est pas au volant de son bus".into(),
+            Reason::Bcs => "il est en trajet BCS".into(),
+            Reason::Loading => "un véhicule est en cours de chargement chez lui".into(),
+            Reason::OwnBusMoving => "son bus doit être à l'arrêt".into(),
+            Reason::OtherBusNotHere => "votre bus n'est pas encore arrivé dans son jeu".into(),
+            Reason::OtherBusMoving => "votre bus doit être à l'arrêt".into(),
+            Reason::TooFar => format!("vos bus doivent être à moins de {NEAR_M:.0} m l'un de l'autre"),
+            Reason::OtherBusNotInstalled => "votre bus n'est pas installé sur son PC".into(),
+            Reason::OtherBusNotOffered => "le serveur ne lui propose pas votre bus".into(),
+        }
+    }
+}
+
 /// Why we may not swap with player `who` now (None: we may). Each game checks its own side
 /// (its bus, its BCS trip) and the distance between the two: asking, answering, and again
 /// just before the go (`receive`).
-pub(crate) fn why_not(app: &App, who: u32) -> Option<String> {
-    let Some(lan) = app.net.lan.as_ref() else { return Some("pas de partie multijoueur".into()) };
+pub(crate) fn why_not(app: &App, who: u32) -> Option<Reason> {
+    let Some(lan) = app.net.lan.as_ref() else { return Some(Reason::NoSession) };
     if who == lan.my_id {
-        return Some("c'est vous".into());
+        return Some(Reason::Myself);
     }
     let Some(p) = app.player.as_ref().filter(|_| app.session.on_foot.is_none() && app.net.inside_remote.is_none()) else {
-        return Some("vous ne conduisez pas de bus".into());
+        return Some(Reason::NotAtWheel);
     };
     if crate::stalium_bcs::started_by_bcs(&app.args) {
-        return Some("pas pendant un trajet BCS".into());
+        return Some(Reason::Bcs);
     }
     if app.menus.pending_placement.is_some() {
-        return Some("un véhicule est déjà en cours de chargement".into());
+        return Some(Reason::Loading);
     }
     if p.vehicle.physics.velocity_kmh().abs() >= STILL_KMH {
-        return Some("votre bus doit être à l'arrêt".into());
+        return Some(Reason::OwnBusMoving);
     }
-    let Some(rv) = app.net.remotes.remotes.get(&who) else { return Some("son bus n'est pas encore arrivé ici".into()) };
+    let Some(rv) = app.net.remotes.remotes.get(&who) else { return Some(Reason::OtherBusNotHere) };
     if rv.last.speed_kmh.abs() >= STILL_KMH {
-        return Some("son bus doit être à l'arrêt".into());
+        return Some(Reason::OtherBusMoving);
     }
     if (rv.vehicle().position - p.vehicle.position).truncate().length() > NEAR_M {
-        return Some(format!("vos bus doivent être à moins de {NEAR_M:.0} m l'un de l'autre"));
+        return Some(Reason::TooFar);
     }
-    let store = omsi_launcher_lib::data_dir().join("lan-vehicles");
-    if rv.stand_in || rv.fallback || rv.last.bus.trim().is_empty() || rv.vehicle().ty.def.path.starts_with(&store) {
-        return Some("son bus n'est pas installé ici".into());
+    // (their bus as a file of this installation: the one taken over is ours, read from our
+    // files - the copy drawn here may be theirs, sent by the server when the two versions of
+    // the bus differ, and it is no less a bus of ours for that)
+    if rv.stand_in || rv.fallback || !installed_here(app, &rv.last.bus) {
+        return Some(Reason::OtherBusNotInstalled);
     }
     if crate::lan::server_offers().is_some_and(|o| !crate::lan::offers(&o, &rv.last.bus)) {
-        return Some("le serveur ne propose pas son bus".into());
+        return Some(Reason::OtherBusNotOffered);
     }
     None
+}
+
+/// Is the bus file `bus` (as the players' poses name it, under the OMSI folder) one of this
+/// installation's?
+fn installed_here(app: &App, bus: &str) -> bool {
+    let bus = bus.trim();
+    !bus.is_empty() && omsi_cfg::resolve_path(&app.args.root, bus).is_file()
 }
 
 /// The player list's "Échanger nos bus" with player `who`.
 pub(crate) fn ask(app: &mut App, who: u32) {
     if let Some(why) = why_not(app, who) {
-        app.service_msg = Some((format!("Échange impossible : {why}"), 5.0));
+        app.service_msg = Some((format!("Échange impossible : {}", why.mine()), 6.0));
         return;
     }
     // (one request at a time: a new one replaces ours)
@@ -244,8 +305,8 @@ pub(crate) fn answer(app: &mut App, accept: bool) {
         return;
     }
     if let Some(why) = why_not(app, o.who) {
-        send(app, o.who, &Msg::No(o.nonce, why.clone()));
-        app.service_msg = Some((format!("Échange impossible : {why}"), 6.0));
+        send(app, o.who, &Msg::No(o.nonce, why.theirs()));
+        app.service_msg = Some((format!("Échange impossible : {}", why.mine()), 6.0));
         return;
     }
     // (the swap waits for their go: their game checks everything again first)
@@ -269,8 +330,8 @@ pub(crate) fn receive(app: &mut App, from: u32, rest: &str) {
         Msg::Ask(n) => {
             // (refused at once where we could not: no question asked for nothing)
             if let Some(why) = why_not(app, from) {
-                log::info!("Stalium: player {from} asks to swap buses: no, {why}");
-                send(app, from, &Msg::No(n, why));
+                log::info!("Stalium: player {from} asks to swap buses: no, {why:?}");
+                send(app, from, &Msg::No(n, why.theirs()));
                 return;
             }
             if with(|s| s.offer.as_ref().is_some_and(|o| o.who != from)) {
@@ -295,9 +356,9 @@ pub(crate) fn receive(app: &mut App, from: u32, rest: &str) {
             };
             // (the rules once more, at the last moment: they swap only on our go)
             if let Some(why) = why_not(app, from) {
-                log::info!("Stalium: player {from} accepted the swap, but now {why}: called off");
+                log::info!("Stalium: player {from} accepted the swap, but now {why:?}: called off");
                 send(app, from, &Msg::Cancel(n));
-                app.service_msg = Some((format!("Échange annulé : {why}"), 6.0));
+                app.service_msg = Some((format!("Échange annulé : {}", why.mine()), 6.0));
                 return;
             }
             send(app, from, &Msg::Go(n));
@@ -440,6 +501,20 @@ mod tests {
         assert_eq!(Msg::parse("ask x"), None);
         assert_eq!(Msg::parse("swap 3"), None);
         assert_eq!(Msg::parse(""), None);
+    }
+
+    /// Every reason sent to the other player fits a command with the longest nonce, and is said
+    /// from their side.
+    #[test]
+    fn reasons_fit_and_read_from_each_side() {
+        use Reason::*;
+        for r in [NoSession, Myself, NotAtWheel, Bcs, Loading, OwnBusMoving, OtherBusNotHere, OtherBusMoving, TooFar, OtherBusNotInstalled, OtherBusNotOffered] {
+            let text = Msg::No(u64::MAX, r.theirs()).text();
+            assert!(text.chars().count() <= omsi_net::MAX_CHAT, "{text}");
+            assert_eq!(Msg::parse(text.strip_prefix("stalium_swap ").unwrap()), Some(Msg::No(u64::MAX, r.theirs())));
+            assert!(!r.mine().is_empty());
+        }
+        assert!(NotAtWheel.mine().contains("volant") && NotAtWheel.theirs().starts_with("il "));
     }
 
     #[test]
