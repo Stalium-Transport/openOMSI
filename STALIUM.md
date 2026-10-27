@@ -30,7 +30,8 @@ les versions 0.3.39 et plus anciennes).
   chaque jeu prend le bus de l'autre là où il est, dans l'état où l'autre l'avait (fichier,
   peinture, toutes les variables et textes du script : IBIS, girouette…), avec ses passagers
   à leur place ; le service (ligne, course) reste à chaque joueur. Seulement entre deux bus à
-  l'arrêt, à moins de 200 m l'un de l'autre, hors trajet BCS, et quand le bus de l'autre est
+  l'arrêt, à moins de 200 m l'un de l'autre (celui qui demande, au volant, à pied ou dans un autre
+  bus, à moins de 50 m du bus de l'autre), hors trajet BCS, et quand le bus de l'autre est
   installé chez soi et proposé par le serveur. Les messages passent par les commandes entre
   joueurs (via le serveur, envoyés 3 fois) : pas de changement de protocole, mais les deux
   joueurs doivent avoir une version qui le connaît.

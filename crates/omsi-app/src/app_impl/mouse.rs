@@ -728,7 +728,10 @@ impl App {
         let Some((i, _)) = crate::player::pick_in(v, o, d, spread, crate::player::Reach::ANY) else { return };
         let Some(ev) = v.ty.meshes.get(i).and_then(|m| v.ty.model.meshes.get(m.def_index)).and_then(|m| m.mouse_event.as_ref()).map(|e| e.trim().to_string()).filter(|e| !e.is_empty()) else { return };
         if !omsi_lan::passenger::passenger_trigger(&ev) {
-            self.service_msg = Some(("Seul le conducteur peut utiliser ce bouton".into(), 2.0));
+            // (its name said: a passengers' button of a bus whose maker named it otherwise is
+            // added to `passenger_trigger` from it)
+            log::info!("LAN: {ev} in player {owner}'s bus is the driver's: not worked");
+            self.service_msg = Some((format!("Seul le conducteur peut utiliser ce bouton ({ev})"), 4.0));
             return;
         }
         if let Some(l) = self.net.lan.as_mut() {

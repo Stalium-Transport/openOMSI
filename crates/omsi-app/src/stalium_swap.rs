@@ -8,7 +8,9 @@
 //! its riders, who ride on in the other game. The duty (line, tour) stays each player's.
 //!
 //! Allowed only between two buses that stand still (under [`STILL_KMH`]) within [`NEAR_M`]
-//! of each other, driven (not on foot), not on a trip started by BCS (its record of the trip
+//! of each other, the player who asks within [`ASKER_NEAR_M`] of the other's bus (at the
+//! wheel, on foot or in yet another bus: a player on foot is put back at the wheel before
+//! the swap), not on a trip started by BCS (its record of the trip
 //! - km, fuel, tickets - is the bus's), and when the other's bus is installed here as itself
 //! (not a stand-in nor a copy fetched from the server only to be drawn) and offered by the
 //! server. Each game checks its own side again before it answers or swaps.
@@ -32,6 +34,9 @@ pub(crate) const STILL_KMH: f32 = 1.0;
 /// The two buses at most this far apart (m): riders are shared only near (`CAR_RADIUS`), and
 /// the drivers meet to swap.
 pub(crate) const NEAR_M: f64 = 200.0;
+/// The player who asks is at most this far from the other's bus (m): at its wheel, on foot,
+/// or in yet another bus.
+pub(crate) const ASKER_NEAR_M: f64 = 50.0;
 /// How long the asked game waits for the go after its yes (s).
 pub(crate) const GO_SECS: f32 = 10.0;
 /// Each message is sent this many times, [`REPEAT_GAP`] seconds apart.
@@ -178,15 +183,17 @@ fn name_of(app: &App, who: u32) -> String {
 pub(crate) enum Reason {
     NoSession,
     Myself,
-    /// Not at the wheel of one's own bus: on foot (got up), in another player's bus, or
-    /// without a bus.
-    NotAtWheel,
+    /// No bus of one's own (on foot after leaving it is fine: the swap sits one back at the
+    /// wheel first).
+    NoBus,
     Bcs,
     Loading,
     OwnBusMoving,
     OtherBusNotHere,
     OtherBusMoving,
     TooFar,
+    /// The player who asks is too far from the other's bus ([`ASKER_NEAR_M`]).
+    AskerTooFar,
     OtherBusNotInstalled,
     OtherBusNotOffered,
 }
@@ -196,13 +203,14 @@ impl Reason {
         match self {
             Reason::NoSession => "pas de partie multijoueur".into(),
             Reason::Myself => "c'est vous".into(),
-            Reason::NotAtWheel => "retournez au volant de votre bus (G près du poste de conduite, ou Échap → Retour à mon bus)".into(),
+            Reason::NoBus => "vous n'avez pas de bus".into(),
             Reason::Bcs => "pas pendant un trajet BCS".into(),
             Reason::Loading => "un véhicule est déjà en cours de chargement".into(),
             Reason::OwnBusMoving => "votre bus doit être à l'arrêt".into(),
             Reason::OtherBusNotHere => "son bus n'est pas encore arrivé dans votre jeu".into(),
             Reason::OtherBusMoving => "son bus doit être à l'arrêt".into(),
             Reason::TooFar => format!("vos bus doivent être à moins de {NEAR_M:.0} m l'un de l'autre"),
+            Reason::AskerTooFar => format!("approchez-vous de son bus (moins de {ASKER_NEAR_M:.0} m)"),
             Reason::OtherBusNotInstalled => "son bus n'est pas installé sur votre PC".into(),
             Reason::OtherBusNotOffered => "le serveur ne propose pas son bus".into(),
         }
@@ -211,13 +219,14 @@ impl Reason {
     pub(crate) fn theirs(self) -> String {
         match self {
             Reason::NoSession | Reason::Myself => "impossible".into(),
-            Reason::NotAtWheel => "il n'est pas au volant de son bus".into(),
+            Reason::NoBus => "il n'a pas de bus".into(),
             Reason::Bcs => "il est en trajet BCS".into(),
             Reason::Loading => "un véhicule est en cours de chargement chez lui".into(),
             Reason::OwnBusMoving => "son bus doit être à l'arrêt".into(),
             Reason::OtherBusNotHere => "votre bus n'est pas encore arrivé dans son jeu".into(),
             Reason::OtherBusMoving => "votre bus doit être à l'arrêt".into(),
             Reason::TooFar => format!("vos bus doivent être à moins de {NEAR_M:.0} m l'un de l'autre"),
+            Reason::AskerTooFar => format!("il doit être à moins de {ASKER_NEAR_M:.0} m de votre bus"),
             Reason::OtherBusNotInstalled => "votre bus n'est pas installé sur son PC".into(),
             Reason::OtherBusNotOffered => "le serveur ne lui propose pas votre bus".into(),
         }
@@ -225,15 +234,16 @@ impl Reason {
 }
 
 /// Why we may not swap with player `who` now (None: we may). Each game checks its own side
-/// (its bus, its BCS trip) and the distance between the two: asking, answering, and again
-/// just before the go (`receive`).
-pub(crate) fn why_not(app: &App, who: u32) -> Option<Reason> {
+/// (its bus, its BCS trip) and the distance between the two buses: asking, answering, and
+/// again just before the go (`receive`). The player who asks (`asking`) may be at the wheel,
+/// on foot or in another bus, but within [`ASKER_NEAR_M`] of the other's bus.
+pub(crate) fn why_not(app: &App, who: u32, asking: bool) -> Option<Reason> {
     let Some(lan) = app.net.lan.as_ref() else { return Some(Reason::NoSession) };
     if who == lan.my_id {
         return Some(Reason::Myself);
     }
-    let Some(p) = app.player.as_ref().filter(|_| app.session.on_foot.is_none() && app.net.inside_remote.is_none()) else {
-        return Some(Reason::NotAtWheel);
+    let Some(p) = app.player.as_ref() else {
+        return Some(Reason::NoBus);
     };
     if crate::stalium_bcs::started_by_bcs(&app.args) {
         return Some(Reason::Bcs);
@@ -250,6 +260,11 @@ pub(crate) fn why_not(app: &App, who: u32) -> Option<Reason> {
     }
     if (rv.vehicle().position - p.vehicle.position).truncate().length() > NEAR_M {
         return Some(Reason::TooFar);
+    }
+    // (where the asker is: on foot, as the walker is - in another bus too -, else their bus)
+    let me = app.session.on_foot.as_ref().map(|f| f.pos).unwrap_or(p.vehicle.position);
+    if asking && (rv.vehicle().position - me).truncate().length() > ASKER_NEAR_M {
+        return Some(Reason::AskerTooFar);
     }
     // (their bus as a file of this installation: the one taken over is ours, read from our
     // files - the copy drawn here may be theirs, sent by the server when the two versions of
@@ -272,7 +287,7 @@ fn installed_here(app: &App, bus: &str) -> bool {
 
 /// The player list's "Échanger nos bus" with player `who`.
 pub(crate) fn ask(app: &mut App, who: u32) {
-    if let Some(why) = why_not(app, who) {
+    if let Some(why) = why_not(app, who, true) {
         app.service_msg = Some((format!("Échange impossible : {}", why.mine()), 6.0));
         return;
     }
@@ -304,7 +319,7 @@ pub(crate) fn answer(app: &mut App, accept: bool) {
         app.service_msg = Some((format!("Échange avec {} refusé", o.name), 4.0));
         return;
     }
-    if let Some(why) = why_not(app, o.who) {
+    if let Some(why) = why_not(app, o.who, false) {
         send(app, o.who, &Msg::No(o.nonce, why.theirs()));
         app.service_msg = Some((format!("Échange impossible : {}", why.mine()), 6.0));
         return;
@@ -329,7 +344,7 @@ pub(crate) fn receive(app: &mut App, from: u32, rest: &str) {
     match msg {
         Msg::Ask(n) => {
             // (refused at once where we could not: no question asked for nothing)
-            if let Some(why) = why_not(app, from) {
+            if let Some(why) = why_not(app, from, false) {
                 log::info!("Stalium: player {from} asks to swap buses: no, {why:?}");
                 send(app, from, &Msg::No(n, why.theirs()));
                 return;
@@ -355,7 +370,7 @@ pub(crate) fn receive(app: &mut App, from: u32, rest: &str) {
                 return;
             };
             // (the rules once more, at the last moment: they swap only on our go)
-            if let Some(why) = why_not(app, from) {
+            if let Some(why) = why_not(app, from, true) {
                 log::info!("Stalium: player {from} accepted the swap, but now {why:?}: called off");
                 send(app, from, &Msg::Cancel(n));
                 app.service_msg = Some((format!("Échange annulé : {}", why.mine()), 6.0));
@@ -449,8 +464,13 @@ pub(crate) fn reset() {
     with(|s| *s = State::default());
 }
 
-/// Take over player `who`'s bus where it stands, as their game sent it, with its riders.
+/// Take over player `who`'s bus where it stands, as their game sent it, with its riders. A
+/// player on foot (got up, or in another bus) is put back at the wheel first: it is the bus
+/// driven that is replaced, and they drive the new one.
 fn take_over(app: &mut App, who: u32, name: &str) {
+    if app.session.on_foot.is_some() {
+        app.back_to_bus();
+    }
     let Some(rv) = app.net.remotes.remotes.get(&who) else {
         app.service_msg = Some((format!("Échange impossible : le bus de {name} n'est plus là"), 5.0));
         return;
@@ -508,13 +528,13 @@ mod tests {
     #[test]
     fn reasons_fit_and_read_from_each_side() {
         use Reason::*;
-        for r in [NoSession, Myself, NotAtWheel, Bcs, Loading, OwnBusMoving, OtherBusNotHere, OtherBusMoving, TooFar, OtherBusNotInstalled, OtherBusNotOffered] {
+        for r in [NoSession, Myself, NoBus, Bcs, Loading, OwnBusMoving, OtherBusNotHere, OtherBusMoving, TooFar, AskerTooFar, OtherBusNotInstalled, OtherBusNotOffered] {
             let text = Msg::No(u64::MAX, r.theirs()).text();
             assert!(text.chars().count() <= omsi_net::MAX_CHAT, "{text}");
             assert_eq!(Msg::parse(text.strip_prefix("stalium_swap ").unwrap()), Some(Msg::No(u64::MAX, r.theirs())));
             assert!(!r.mine().is_empty());
         }
-        assert!(NotAtWheel.mine().contains("volant") && NotAtWheel.theirs().starts_with("il "));
+        assert!(NoBus.theirs().starts_with("il ") && AskerTooFar.mine().contains("50 m"));
     }
 
     #[test]
