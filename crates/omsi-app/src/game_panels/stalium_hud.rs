@@ -9,9 +9,12 @@
 //! - The tablet (`stalium_tablet`, F11 by default): the line, the next stop, the delay, the
 //!   passengers and the takings.
 //! - The road sheet (`stalium_sheet`, F10): the service since it began (the driver, the line,
-//!   the times, the distance, the passengers, the tickets, the delay, the bus), sent to Stalium
-//!   Companion and the Discord bot on this computer (UDP 127.0.0.1:4040 and :47800, the same
-//!   JSON as the plugin's `SUBMIT_DRIVER_SHEET`), after which a new sheet begins.
+//!   the times, the distance, the passengers, the tickets, the delay, the bus), sent to the
+//!   Stalium website ([`SITE_API`], as Stalium Companion sent it: the plugin's
+//!   `SUBMIT_DRIVER_SHEET` JSON and `saved_at`; the site answers `success` and `earned`) and
+//!   to the Discord bot on this computer (UDP 127.0.0.1:47800), after which a new sheet
+//!   begins. Not to Companion any more (UDP :4040): it sent the sheet on to the site, which
+//!   would have had it twice.
 //! - `stalium_hud` (F7): the HUD hidden or shown again.
 //!
 //! The tablet and the sheet take the mouse while open (Esc closes them); the bar does not.
@@ -21,9 +24,10 @@ use omsi_plugin::ui::Anchor;
 
 /// What the HUD shows of the plugin's version: the HUD's own.
 const VERSION: &str = "v3.0";
-/// Stalium Companion's port, and the Discord bot's / Stalium Live's, on this computer.
-pub(crate) const COMPANION_PORT: u16 = 4040;
+/// The Discord bot's / Stalium Live's port on this computer.
 pub(crate) const BOT_PORT: u16 = 47800;
+/// Where the road sheets go on the Stalium website (Stalium Companion's `api_url`).
+pub(crate) const SITE_API: &str = "https://omsi.stalium-transport.fr/api/omsi_trips.php";
 
 const ORANGE: Rgba = Rgba([0xF4, 0x7F, 0x30, 255]);
 const GREY: Rgba = Rgba([0x7F, 0x8C, 0x8D, 255]);
@@ -139,15 +143,90 @@ pub(crate) fn sheet_json(s: &Snapshot) -> String {
     )
 }
 
-/// Send the sheet to Stalium Companion and the bot on this computer (UDP: nothing waits for
-/// an answer, and nothing is said when neither runs).
-fn send_sheet(json: &str) -> bool {
-    let Ok(socket) = std::net::UdpSocket::bind(("127.0.0.1", 0)) else { return false };
-    let mut sent = false;
-    for port in [COMPANION_PORT, BOT_PORT] {
-        sent |= socket.send_to(json.as_bytes(), ("127.0.0.1", port)).is_ok();
+/// The sheet for the website: the same JSON with `saved_at` (the computer's local date and
+/// time, `YYYY-MM-DD HH:MM:SS`), as Stalium Companion sent it.
+pub(crate) fn with_saved_at(json: &str, saved_at: &str) -> String {
+    let body = json.trim_end().trim_end_matches('}');
+    format!("{body},\"saved_at\":\"{saved_at}\"}}")
+}
+
+fn saved_at_now() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() % 60).unwrap_or(0);
+    match omsi_launcher_lib::local_now() {
+        Some((y, mo, d, h, mi)) => format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{secs:02}"),
+        None => String::new(),
     }
-    sent
+}
+
+/// What the website said of a sheet: validated with what it earned, or why not.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum SiteAnswer {
+    Validated(String),
+    Refused(String),
+    Unreachable(String),
+}
+
+/// The website's answer read as Stalium Companion read it: `success` true and `earned`.
+pub(crate) fn read_answer(body: &str) -> SiteAnswer {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return SiteAnswer::Refused(short(body, 80));
+    };
+    let ok = match &v["success"] {
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Number(n) => n.as_f64().is_some_and(|x| x != 0.0),
+        serde_json::Value::String(t) => matches!(t.trim().to_ascii_lowercase().as_str(), "true" | "1"),
+        _ => false,
+    };
+    if ok {
+        let earned = match &v["earned"] {
+            serde_json::Value::Null => "0".to_string(),
+            serde_json::Value::String(t) => t.clone(),
+            other => other.to_string(),
+        };
+        SiteAnswer::Validated(earned)
+    } else {
+        let why = v["message"].as_str().or(v["error"].as_str()).map(str::to_string).unwrap_or_else(|| short(body, 80));
+        SiteAnswer::Refused(why)
+    }
+}
+
+/// The website's answers that came, for the HUD to say (taken once a frame).
+static ANSWERS: std::sync::Mutex<Vec<SiteAnswer>> = std::sync::Mutex::new(Vec::new());
+
+/// Send the sheet to the website on a thread of its own (the game goes on; its answer is said
+/// when it comes) and to the bot on this computer (UDP: nothing waits, nothing is said when it
+/// does not run).
+fn send_sheet(json: &str) {
+    if let Ok(socket) = std::net::UdpSocket::bind(("127.0.0.1", 0)) {
+        let _ = socket.send_to(json.as_bytes(), ("127.0.0.1", BOT_PORT));
+    }
+    let body = with_saved_at(json, &saved_at_now());
+    let spawned = std::thread::Builder::new().name("stalium-sheet".into()).spawn(move || {
+        let agent = ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(6)).timeout(std::time::Duration::from_secs(12)).build();
+        let answer = match agent.post(SITE_API).set("Content-Type", "application/json").set("User-Agent", "openOMSI-Stalium").send_string(&body) {
+            Ok(r) => read_answer(&r.into_string().unwrap_or_default()),
+            // (the site's own refusal, with its words)
+            Err(ureq::Error::Status(code, r)) => SiteAnswer::Refused(format!("HTTP {code} {}", short(&r.into_string().unwrap_or_default(), 60))),
+            Err(e) => SiteAnswer::Unreachable(e.to_string()),
+        };
+        log::info!("Stalium: road sheet to {SITE_API}: {answer:?}");
+        ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).push(answer);
+    });
+    if spawned.is_err() {
+        ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).push(SiteAnswer::Unreachable("no thread".into()));
+    }
+}
+
+/// The website's answers since the last frame, said on the screen.
+fn say_answers(app: &mut crate::App) {
+    let answers: Vec<SiteAnswer> = std::mem::take(&mut *ANSWERS.lock().unwrap_or_else(|e| e.into_inner()));
+    for a in answers {
+        app.service_msg = Some(match a {
+            SiteAnswer::Validated(earned) => (format!("Feuille de route validée sur stalium-transport.fr ! Gain : {earned} €"), 8.0),
+            SiteAnswer::Refused(why) => (format!("Le site Stalium n'a pas validé la feuille de route : {why}"), 10.0),
+            SiteAnswer::Unreachable(_) => ("Le site Stalium ne répond pas : feuille de route non envoyée (voir game.log)".into(), 10.0),
+        });
+    }
 }
 
 // --- what the game says --------------------------------------------------------------------
@@ -257,12 +336,12 @@ impl crate::App {
     fn stalium_submit_sheet(&mut self) {
         let Some(s) = self.stalium_snapshot() else { return };
         let json = sheet_json(&s);
-        let sent = send_sheet(&json);
-        log::info!("Stalium: road sheet sent ({}): {json}", if sent { "to Companion and the bot" } else { "nowhere: no UDP" });
+        log::info!("Stalium: road sheet: {json}");
+        send_sheet(&json);
         let h = &mut self.menus.game_panels.stalium;
         h.sheet = false;
         h.start = None;
-        self.service_msg = Some((format!("Feuille de route {} validée et envoyée ({:.1} km, {} voyageur(s), {:.2} €)", s.line.as_deref().unwrap_or("HLP"), s.km, s.carried, s.tickets.1), 6.0));
+        self.service_msg = Some((format!("Feuille de route {} envoyée au site Stalium ({:.1} km, {} voyageur(s))...", s.line.as_deref().unwrap_or("HLP"), s.km, s.carried), 6.0));
     }
 }
 
@@ -403,13 +482,14 @@ pub(crate) fn sheet(s: &Snapshot) -> Panel {
         row_of(vec![t("Ponctualité :", WHITE), badge(&delay, delay_color)]),
         divider(),
         row_of(vec![button("send_sheet", "Valider et envoyer la feuille de route", Some("send")), button("close_sheet", "Fermer", None)]),
-        small("La feuille part vers Stalium Companion et le bot Discord de ce PC ; une nouvelle feuille commence ensuite."),
+        small("La feuille part sur stalium-transport.fr (et au bot Discord de ce PC) ; une nouvelle feuille commence ensuite."),
     ];
     card(Anchor::Center, 0.0, 0.0, 720.0, 250, children)
 }
 
 /// The HUD's panels this frame: (id, the panel or None to take it away).
 pub(crate) fn panels(app: &mut crate::App, screen_width: f32) -> Vec<(&'static str, Option<Panel>)> {
+    say_answers(app);
     let on = app.stalium_hud_on() && !app.menus.game_panels.stalium.hidden;
     let snap = if on { app.stalium_snapshot() } else { None };
     let h = &app.menus.game_panels.stalium;
@@ -492,6 +572,19 @@ mod tests {
         // a name with quotes stays JSON
         let odd = Snapshot { driver: "a\"b\\c".into(), ..snap() };
         assert!(serde_json::from_str::<serde_json::Value>(&sheet_json(&odd)).is_ok());
+    }
+
+    #[test]
+    fn the_website_gets_the_sheet_with_its_date_and_says_what_it_earned() {
+        let j = with_saved_at(&sheet_json(&snap()), "2026-10-28 19:45:12");
+        let v: serde_json::Value = serde_json::from_str(&j).expect("valid JSON");
+        assert_eq!(v["saved_at"], "2026-10-28 19:45:12");
+        assert_eq!(v["action"], "SUBMIT_DRIVER_SHEET");
+        assert_eq!(read_answer(r#"{"success":true,"earned":12.5}"#), SiteAnswer::Validated("12.5".into()));
+        assert_eq!(read_answer(r#"{"success":"true","earned":"8,40"}"#), SiteAnswer::Validated("8,40".into()));
+        assert_eq!(read_answer(r#"{"success":1}"#), SiteAnswer::Validated("0".into()));
+        assert_eq!(read_answer(r#"{"success":false,"message":"chauffeur inconnu"}"#), SiteAnswer::Refused("chauffeur inconnu".into()));
+        assert!(matches!(read_answer("<html>erreur</html>"), SiteAnswer::Refused(_)));
     }
 
     #[test]
