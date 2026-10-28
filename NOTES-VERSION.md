@@ -6,7 +6,8 @@
 - Le HUD du plugin Stalium fait maintenant partie du jeu : plus besoin de copier le plugin dans le dossier du jeu. Si vous l'aviez installé, supprimez `main.lua` et `openomsi-plugin.toml` du dossier `plugins` pour ne pas avoir deux HUD, et n'utilisez plus Stalium Companion : sa mise à jour automatique remettrait le plugin dans le jeu.
 - Bandeau en haut de l'écran, à la place de la barre d'informations : chauffeur, carte, bus, heure, vitesse, kilomètres, odomètre, températures extérieure et intérieure, réservoir, passagers, ligne et terminus, prochain arrêt, retard.
 - Tablette conducteur (F11) : ligne, prochain arrêt, retard, terminus, passagers, caisse.
-- Feuille de route (F10) : chauffeur, ligne et service, prise de service, distance, voyageurs, billetterie, ponctualité, véhicule. « Valider et envoyer » l'envoie directement sur stalium-transport.fr (le jeu affiche la réponse du site et le gain), et au bot Discord du PC, puis une nouvelle feuille commence. Stalium Companion n'est plus nécessaire pour ça.
+- Feuille de route (F10, à consulter) : chauffeur, ligne et service, début de la course, distance, voyageurs, billetterie, ponctualité, véhicule.
+- À la fin de chaque course du service (terminus desservi), la feuille de route part toute seule sur stalium-transport.fr, sans rien valider ; le jeu affiche la réponse du site et le gain. Elle part aussi au bot Discord du PC. Une nouvelle feuille commence pour la course suivante. Stalium Companion n'est plus nécessaire.
 - F7 masque ou réaffiche le HUD. Les touches se changent dans Options → Commandes (si F11, F10 ou F7 sert déjà dans votre keyboard.cfg, le jeu prend F8, F9 ou F6). Le HUD se désactive dans Options → Gameplay (« HUD Stalium Transport »).
 
 **Rappel** : le serveur et les joueurs doivent avoir la même version.

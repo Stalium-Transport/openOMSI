@@ -8,9 +8,10 @@
 //!   terminus, the next stop and the delay. It takes the place of the game's information bar.
 //! - The tablet (`stalium_tablet`, F11 by default): the line, the next stop, the delay, the
 //!   passengers and the takings.
-//! - The road sheet (`stalium_sheet`, F10): the service since it began (the driver, the line,
-//!   the times, the distance, the passengers, the tickets, the delay, the bus), sent to the
-//!   Stalium website ([`SITE_API`], as Stalium Companion sent it: the plugin's
+//! - The road sheet (`stalium_sheet`, F10, to read): the trip since it began (the driver, the
+//!   line, the times, the distance, the passengers, the tickets, the delay, the bus), sent by
+//!   itself at the end of each trip of the duty (the terminus served: the duty goes on to its
+//!   next trip, or ends) to the Stalium website ([`SITE_API`], as Stalium Companion sent it: the plugin's
 //!   `SUBMIT_DRIVER_SHEET` JSON and `saved_at`; the site answers `success` and `earned`) and
 //!   to the Discord bot on this computer (UDP 127.0.0.1:47800), after which a new sheet
 //!   begins. Not to Companion any more (UDP :4040): it sent the sheet on to the site, which
@@ -48,6 +49,8 @@ pub(crate) struct StaliumHud {
     /// The sheet's beginning: the game time (s), the session's metres, its tickets (count,
     /// takings) and passengers then. None until the first frame with a bus.
     start: Option<SheetStart>,
+    /// The last frame's values: the sheet of a trip that has just ended is that.
+    last: Option<Snapshot>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -80,6 +83,8 @@ pub(crate) struct Snapshot {
     pub capacity: Option<usize>,
     pub line: Option<String>,
     pub tour: Option<String>,
+    /// The duty's trip driven (its index), with a duty.
+    pub trip: Option<usize>,
     pub terminus: Option<String>,
     pub next_stop: Option<String>,
     /// Seconds late (negative: early), with a duty.
@@ -290,6 +295,7 @@ impl crate::App {
                 let line = if trip.line.trim().is_empty() { d.line.trim() } else { trip.line.trim() };
                 s.line = Some(line.to_string()).filter(|l| !l.is_empty());
                 s.tour = Some(d.tour.trim().to_string()).filter(|t| !t.is_empty());
+                s.trip = Some(d.trip_index);
                 s.terminus = Some(trip.terminus.trim().to_string()).filter(|t| !t.is_empty());
                 s.next_stop = trip.stops.get(d.next_stop).map(|st| st.name.trim().to_string()).filter(|n| !n.is_empty());
                 s.delay = Some(v.host.tt_delay as f64);
@@ -332,17 +338,22 @@ impl crate::App {
         self.settings.stalium_hud
     }
 
-    /// The sheet sent, and a new one begun.
-    fn stalium_submit_sheet(&mut self) {
-        let Some(s) = self.stalium_snapshot() else { return };
-        let json = sheet_json(&s);
-        log::info!("Stalium: road sheet: {json}");
+    /// The sheet of the trip that has just ended (`s`, as the last frame had it) sent, and a
+    /// new one begun.
+    fn stalium_send_trip_sheet(&mut self, s: &Snapshot) {
+        let json = sheet_json(s);
+        log::info!("Stalium: trip {:?} of line {:?} ended: road sheet {json}", s.trip, s.line);
         send_sheet(&json);
-        let h = &mut self.menus.game_panels.stalium;
-        h.sheet = false;
-        h.start = None;
-        self.service_msg = Some((format!("Feuille de route {} envoyée au site Stalium ({:.1} km, {} voyageur(s))...", s.line.as_deref().unwrap_or("HLP"), s.km, s.carried), 6.0));
+        self.menus.game_panels.stalium.start = None;
+        self.service_msg = Some((format!("Course terminée : feuille de route {} envoyée au site Stalium ({:.1} km, {} voyageur(s))...", s.line.as_deref().unwrap_or("HLP"), s.km, s.carried), 6.0));
     }
+}
+
+/// Whether the trip of `last` (the last frame) has ended by `now`: the duty has gone on to
+/// another trip, or ended, or another duty has begun - with the bus still there (a bus being
+/// replaced is no trip's end) and something driven to report.
+pub(crate) fn trip_ended(last: &Snapshot, now: &Snapshot) -> bool {
+    last.trip.is_some() && (now.trip != last.trip || now.tour != last.tour || now.line != last.line && now.trip.is_none()) && (last.km >= 0.05 || last.carried > 0)
 }
 
 // --- the panels ----------------------------------------------------------------------------
@@ -481,8 +492,8 @@ pub(crate) fn sheet(s: &Snapshot) -> Panel {
         pair(format!("Billetterie : {} ticket(s) ({:.2} €)", s.tickets.0, s.tickets.1), BLUE, format!("Véhicule : {bus}"), YELLOW),
         row_of(vec![t("Ponctualité :", WHITE), badge(&delay, delay_color)]),
         divider(),
-        row_of(vec![button("send_sheet", "Valider et envoyer la feuille de route", Some("send")), button("close_sheet", "Fermer", None)]),
-        small("La feuille part sur stalium-transport.fr (et au bot Discord de ce PC) ; une nouvelle feuille commence ensuite."),
+        row_of(vec![button("close_sheet", "Fermer", None)]),
+        small("La feuille part toute seule sur stalium-transport.fr (et au bot Discord de ce PC) à la fin de chaque course ; une nouvelle feuille commence ensuite."),
     ];
     card(Anchor::Center, 0.0, 0.0, 720.0, 250, children)
 }
@@ -490,8 +501,18 @@ pub(crate) fn sheet(s: &Snapshot) -> Panel {
 /// The HUD's panels this frame: (id, the panel or None to take it away).
 pub(crate) fn panels(app: &mut crate::App, screen_width: f32) -> Vec<(&'static str, Option<Panel>)> {
     say_answers(app);
+    // (the trips' sheets go by themselves, the HUD shown or hidden)
+    let mut snap = if app.stalium_hud_on() { app.stalium_snapshot() } else { None };
+    if let Some(now) = snap.as_ref() {
+        let last = app.menus.game_panels.stalium.last.take();
+        if let Some(last) = last.filter(|l| trip_ended(l, now)) {
+            app.stalium_send_trip_sheet(&last);
+            snap = app.stalium_snapshot();
+        }
+        app.menus.game_panels.stalium.last = snap.clone();
+    }
     let on = app.stalium_hud_on() && !app.menus.game_panels.stalium.hidden;
-    let snap = if on { app.stalium_snapshot() } else { None };
+    let snap = snap.filter(|_| on);
     let h = &app.menus.game_panels.stalium;
     let Some(s) = snap else {
         return vec![("st_bar", None), ("st_tablet", None), ("st_sheet", None)];
@@ -509,7 +530,6 @@ pub(crate) fn click(app: &mut crate::App, panel: &str, element: &str) {
         ("st_tablet", "close_tablet") => app.menus.game_panels.stalium.tablet = false,
         ("st_tablet", "open_sheet") => app.menus.game_panels.stalium.sheet = true,
         ("st_sheet", "close_sheet") => app.menus.game_panels.stalium.sheet = false,
-        ("st_sheet", "send_sheet") => app.stalium_submit_sheet(),
         _ => {}
     }
 }
@@ -535,6 +555,7 @@ mod tests {
             capacity: Some(87),
             line: Some("21".into()),
             tour: Some("2D".into()),
+            trip: Some(13),
             terminus: Some("P+R Ronoe".into()),
             next_stop: Some("Thiers - Victor Hugo".into()),
             delay: Some(75.0),
@@ -587,6 +608,19 @@ mod tests {
         assert!(matches!(read_answer("<html>erreur</html>"), SiteAnswer::Refused(_)));
     }
 
+    /// A trip ends when the duty goes on to its next trip or ends, not when nothing was driven
+    /// or there is no duty.
+    #[test]
+    fn a_trip_ends_when_the_duty_goes_on() {
+        let on_trip = Snapshot { trip: Some(13), ..snap() };
+        assert!(trip_ended(&on_trip, &Snapshot { trip: Some(14), ..snap() }));
+        assert!(trip_ended(&on_trip, &Snapshot { trip: None, line: None, tour: None, ..snap() }), "the duty ended");
+        assert!(trip_ended(&on_trip, &Snapshot { trip: Some(13), tour: Some("3A".into()), ..snap() }), "another duty");
+        assert!(!trip_ended(&on_trip, &on_trip.clone()));
+        assert!(!trip_ended(&Snapshot { trip: Some(13), km: 0.0, carried: 0, ..snap() }, &Snapshot { trip: Some(14), ..snap() }), "nothing driven");
+        assert!(!trip_ended(&Snapshot { trip: None, ..snap() }, &Snapshot { trip: Some(1), ..snap() }), "no duty before");
+    }
+
     #[test]
     fn the_panels_carry_their_buttons() {
         let s = snap();
@@ -607,7 +641,7 @@ mod tests {
         };
         assert!(ids(&tablet(&s)).contains(&"close_tablet".to_string()));
         assert!(ids(&tablet(&s)).contains(&"open_sheet".to_string()));
-        assert!(ids(&sheet(&s)).contains(&"send_sheet".to_string()));
+        assert_eq!(ids(&sheet(&s)), vec!["close_sheet".to_string()], "the sheet goes by itself: no button to send it");
         assert!(ids(&bar(&s, 1920.0)).is_empty(), "the bar takes no clicks");
         // a narrow screen leaves the vehicle's details out
         let text = |p: &Panel| format!("{:?}", p.children);
