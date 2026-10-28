@@ -28,6 +28,14 @@ fn directory() -> Option<String> {
     DIRECTORY.map(unscramble).filter(|d| d.contains(':'))
 }
 
+/// The Stalium server's machine (the directory's host, without its port): the game servers
+/// that run there are Stalium's. None in a build without the secret.
+pub(crate) fn directory_host() -> Option<String> {
+    let d = directory()?;
+    let host = d.rsplit_once(':').map(|(h, _)| h).unwrap_or(&d);
+    Some(host.trim().trim_start_matches('[').trim_end_matches(']').to_string()).filter(|h| !h.is_empty())
+}
+
 /// A start by BCS: its own personnel file `bbs\bbs.odr`.
 fn started_by_bcs(args: &Args) -> bool {
     args.driver.as_deref().map(|d| d.replace('\\', "/").to_lowercase().ends_with("bbs/bbs.odr")).unwrap_or(false)

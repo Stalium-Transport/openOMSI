@@ -29,7 +29,8 @@ versions 0.3.39 et plus anciennes). Serveur et joueurs : de préférence la mêm
   à copier dans le dossier du jeu) : un bandeau en haut de l'écran à la place de la barre
   d'informations (chauffeur, carte, bus, heure, vitesse, km, odomètre, températures, réservoir,
   passagers, ligne, prochain arrêt, retard), la tablette conducteur (`stalium_tablet`, F11) et la
-  feuille de route (`stalium_sheet`, F10, à consulter), envoyée toute seule à la fin de chaque
+  feuille de route (`stalium_sheet`, F10, à consulter), envoyée - seulement sur un serveur Stalium
+  (serveur de jeu sur la machine de `STALIUM_ANNUAIRE`), au nom du pseudo multijoueur - toute seule à la fin de chaque
   course du service (le service passe à la course suivante ou se termine) directement au site
   (`POST https://omsi.stalium-transport.fr/api/omsi_trips.php`, le JSON `SUBMIT_DRIVER_SHEET` du
   plugin avec `saved_at`, comme Stalium Companion le faisait ; réponse `success` / `earned` affichée

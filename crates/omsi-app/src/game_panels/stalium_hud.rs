@@ -66,6 +66,9 @@ struct SheetStart {
 pub(crate) struct Snapshot {
     /// The keys of the tablet, the road sheet and the HUD as bound ("F11", "(unbound)").
     pub keys: [String; 3],
+    /// Playing on a Stalium server (see `stalium_server_name`): only then do sheets go.
+    pub stalium_server: bool,
+    /// On a Stalium server, the player's multiplayer name; else the profile's (shown only).
     pub driver: String,
     pub map: String,
     pub bus: String,
@@ -236,6 +239,51 @@ fn say_answers(app: &mut crate::App) {
 
 // --- what the game says --------------------------------------------------------------------
 
+/// The Stalium server machine's addresses (see [`crate::stalium_bcs::directory_host`]): read
+/// at once from an IP, else looked up once on a thread of its own (empty until then, and
+/// in a build without the secret).
+fn stalium_ips() -> Vec<std::net::IpAddr> {
+    static IPS: std::sync::OnceLock<Vec<std::net::IpAddr>> = std::sync::OnceLock::new();
+    static ASKED: std::sync::Once = std::sync::Once::new();
+    if let Some(ips) = IPS.get() {
+        return ips.clone();
+    }
+    let Some(host) = crate::stalium_bcs::directory_host() else {
+        let _ = IPS.set(Vec::new());
+        return Vec::new();
+    };
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        let _ = IPS.set(vec![ip]);
+        return vec![ip];
+    }
+    ASKED.call_once(|| {
+        let _ = std::thread::Builder::new().name("stalium-dns".into()).spawn(move || {
+            use std::net::ToSocketAddrs;
+            let ips: Vec<std::net::IpAddr> = (host.as_str(), 0).to_socket_addrs().map(|a| a.map(|s| s.ip()).collect()).unwrap_or_default();
+            log::info!("Stalium: the Stalium server is {ips:?}");
+            let _ = IPS.set(ips);
+        });
+    });
+    Vec::new()
+}
+
+/// Whether a game server at `host` runs on the Stalium server machine (`ips`).
+pub(crate) fn is_stalium_host(host: std::net::SocketAddr, ips: &[std::net::IpAddr]) -> bool {
+    let ip = host.ip().to_canonical();
+    ips.iter().any(|i| i.to_canonical() == ip)
+}
+
+/// The player's name on the Stalium server they play on now (a client of a game server of the
+/// Stalium machine); None elsewhere - alone, hosting, on another server: no sheet goes then.
+fn stalium_server_name(app: &crate::App) -> Option<String> {
+    let l = app.net.lan.as_ref()?;
+    if l.role != omsi_net::Role::Client {
+        return None;
+    }
+    let host = l.host?;
+    is_stalium_host(host, &stalium_ips()).then(|| l.my_name.trim().to_string()).filter(|n| !n.is_empty())
+}
+
 fn driver_name(app: &crate::App) -> String {
     if let Some(l) = app.net.lan.as_ref().filter(|l| !l.my_name.trim().is_empty()) {
         return l.my_name.trim().to_string();
@@ -271,9 +319,12 @@ impl crate::App {
         let bus = format!("{} {}", def.manufacturer.trim(), def.type_name.trim()).trim().to_string();
         let key = |action: &str| self.input.game_keys.iter().find(|b| b.action.eq_ignore_ascii_case(action) && b.scan_code != 0).map(|b| omsi_input::keys::key_name(b.scan_code as i64, b.modifier as i64)).unwrap_or_else(|| "(sans touche)".into());
         let keys = [key("stalium_tablet"), key("stalium_sheet"), key("stalium_hud")];
+        let on_server = stalium_server_name(self);
         let mut s = Snapshot {
             keys,
-            driver: driver_name(self),
+            stalium_server: on_server.is_some(),
+            // (on a Stalium server, the name the server knows the player by)
+            driver: on_server.unwrap_or_else(|| driver_name(self)),
             map: map.trim().to_string(),
             bus: if bus.is_empty() { def.path.file_stem().map(|f| f.to_string_lossy().to_string()).unwrap_or_default() } else { bus },
             number: v.number().trim().to_string(),
@@ -341,6 +392,13 @@ impl crate::App {
     /// The sheet of the trip that has just ended (`s`, as the last frame had it) sent, and a
     /// new one begun.
     fn stalium_send_trip_sheet(&mut self, s: &Snapshot) {
+        if !s.stalium_server {
+            // (alone, hosting or on another server: the sheet stays here, a new one begins)
+            log::info!("Stalium: trip {:?} of line {:?} ended off the Stalium servers: no road sheet sent", s.trip, s.line);
+            self.menus.game_panels.stalium.start = None;
+            self.service_msg = Some(("Course terminée : hors serveur Stalium, la feuille de route n'est pas envoyée".into(), 5.0));
+            return;
+        }
         let json = sheet_json(s);
         log::info!("Stalium: trip {:?} of line {:?} ended: road sheet {json}", s.trip, s.line);
         send_sheet(&json);
@@ -493,7 +551,11 @@ pub(crate) fn sheet(s: &Snapshot) -> Panel {
         row_of(vec![t("Ponctualité :", WHITE), badge(&delay, delay_color)]),
         divider(),
         row_of(vec![button("close_sheet", "Fermer", None)]),
-        small("La feuille part toute seule sur stalium-transport.fr (et au bot Discord de ce PC) à la fin de chaque course ; une nouvelle feuille commence ensuite."),
+        if s.stalium_server {
+            small("Sur le serveur Stalium : la feuille part toute seule sur stalium-transport.fr (et au bot Discord de ce PC) à la fin de chaque course ; une nouvelle feuille commence ensuite.")
+        } else {
+            colored(small("Hors serveur Stalium (solo, partie hébergée ou autre serveur) : la feuille n'est pas envoyée."), GREY)
+        },
     ];
     card(Anchor::Center, 0.0, 0.0, 720.0, 250, children)
 }
@@ -541,6 +603,7 @@ mod tests {
     fn snap() -> Snapshot {
         Snapshot {
             keys: ["F11".into(), "F10".into(), "F7".into()],
+            stalium_server: true,
             driver: "michael75".into(),
             map: "Saint-Servan".into(),
             bus: "Irisbus Citelis 18".into(),
@@ -619,6 +682,17 @@ mod tests {
         assert!(!trip_ended(&on_trip, &on_trip.clone()));
         assert!(!trip_ended(&Snapshot { trip: Some(13), km: 0.0, carried: 0, ..snap() }, &Snapshot { trip: Some(14), ..snap() }), "nothing driven");
         assert!(!trip_ended(&Snapshot { trip: None, ..snap() }, &Snapshot { trip: Some(1), ..snap() }), "no duty before");
+    }
+
+    /// Only a game server on the Stalium machine is a Stalium server.
+    #[test]
+    fn a_stalium_server_is_one_on_the_stalium_machine() {
+        let ips: Vec<std::net::IpAddr> = vec!["203.0.113.7".parse().unwrap()];
+        assert!(is_stalium_host("203.0.113.7:27017".parse().unwrap(), &ips));
+        assert!(is_stalium_host("[::ffff:203.0.113.7]:27018".parse().unwrap(), &ips), "the same machine seen in IPv6");
+        assert!(!is_stalium_host("198.51.100.2:27017".parse().unwrap(), &ips), "another server");
+        assert!(!is_stalium_host("127.0.0.1:27017".parse().unwrap(), &ips), "a server on this PC");
+        assert!(!is_stalium_host("203.0.113.7:27017".parse().unwrap(), &[]), "a build without the secret");
     }
 
     #[test]
