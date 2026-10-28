@@ -25,12 +25,26 @@ versions 0.3.39 et plus anciennes). Serveur et joueurs : de préférence la mêm
 - **Mises à jour Stalium dans le lanceur** : le lanceur propose et installe les releases
   `stalium-…` de github.com/Stalium-Transport/openOMSI, comme openOMSI le fait pour les siennes, et jamais la version
   officielle (elle ne rejoindrait plus les serveurs Stalium).
+- **HUD Stalium Transport dans le jeu** (il était le plugin Lua `fr.stalium.route` d'AlexLiveFr,
+  à copier dans le dossier du jeu) : un bandeau en haut de l'écran à la place de la barre
+  d'informations (chauffeur, carte, bus, heure, vitesse, km, odomètre, températures, réservoir,
+  passagers, ligne, prochain arrêt, retard), la tablette conducteur (`stalium_tablet`, F11) et la
+  feuille de route (`stalium_sheet`, F10), envoyée en UDP à Stalium Companion (127.0.0.1:4040) et
+  au bot (127.0.0.1:47800) avec le même JSON que le plugin (`SUBMIT_DRIVER_SHEET`) ;
+  `stalium_hud` (F7) le masque. Touches dans keyboard.cfg (F8, F9, F6 si les premières sont
+  prises), réglage `stalium_hud` (Options → Gameplay). Les contrôles de titres, aléas, SOS et
+  la télémétrie du plugin n'en font pas partie.
+  Code : `crates/omsi-app/src/game_panels/stalium_hud.rs` (les panneaux du jeu, `game_panels`).
 
 ## Compilation
 
 GitHub Actions, workflow `Stalium` (`.github/workflows/stalium.yml`), lancé à la main
 (Actions → Stalium → Run workflow) : il compile le jeu et le serveur Windows et publie les
 zips dans les Releases (`stalium-0.3.45.<numéro>`). Un envoi de code ne publie rien.
+
+Version de test : dans Run workflow, choisir la branche à tester et cocher « Version de test ».
+Les zips restent dans la page de l'exécution (Artifacts, 14 jours, visibles des membres du
+dépôt connectés) : pas de release, donc aucun jeu de joueur ne se met à jour vers elle.
 
 Le texte de la release vient de `NOTES-VERSION.md` (à mettre à jour avant chaque release), ou du
 champ « changements » de Run workflow s'il est rempli (changements séparés par `;`).

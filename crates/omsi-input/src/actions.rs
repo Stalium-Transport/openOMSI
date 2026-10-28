@@ -18,6 +18,9 @@ pub fn is_game_action(name: &str) -> bool {
                 | "voice_radio"
                 | "voice_nearby"
                 | "pax_door_request"
+                | "stalium_tablet"
+                | "stalium_sheet"
+                | "stalium_hud"
         )
 }
 

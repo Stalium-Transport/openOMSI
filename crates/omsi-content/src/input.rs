@@ -131,6 +131,16 @@ impl KeyboardCfg {
         if !self.game.iter().any(|b| b.action.eq_ignore_ascii_case("pax_door_request")) {
             self.game.push(KeyBinding { action: "pax_door_request".into(), scan_code: 31, modifier: KEY_CTRL | KEY_ALT });
         }
+        // Stalium's HUD: its tablet on F11, its road sheet on F10, the whole HUD hidden on F7, as
+        // the Stalium plugin had them - each on the first of its keys that is free (F11 is
+        // OMSI's pedestrian view in many keyboard.cfg: F8 then, Shift+F11 after), else unbound
+        for (action, keys) in [("stalium_tablet", [(87, 0), (66, 0), (87, KEY_SHIFT)]), ("stalium_sheet", [(68, 0), (67, 0), (68, KEY_SHIFT)]), ("stalium_hud", [(65, 0), (64, 0), (65, KEY_SHIFT)])] {
+            if !self.game.iter().any(|b| b.action.eq_ignore_ascii_case(action)) {
+                let free = |(sc, m): &(i32, i32)| !self.game.iter().chain(self.vehicles.iter()).any(|b| b.scan_code == *sc && b.chord() == *m);
+                let (scan_code, modifier) = keys.iter().copied().find(|k| free(k)).unwrap_or((0, 0));
+                self.game.push(KeyBinding { action: action.into(), scan_code, modifier });
+            }
+        }
         // voice chat in multiplayer (hold to talk): nearby on V, the session-wide radio on B -
         // when free, else unbound (the first radio key was X, #1230: a file that has it keeps it)
         for (action, scan_code) in [("voice_nearby", 47), ("voice_radio", 48)] {
@@ -311,6 +321,24 @@ mod tests {
             let cfg = KeyboardCfg { game: vec![custom.clone()], ..Default::default() }.with_game_defaults();
             assert_eq!(cfg.game.iter().filter(|b| b.action == action).collect::<Vec<_>>(), vec![&custom]);
         }
+    }
+
+    /// Stalium: the HUD's keys are the plugin's F11, F10 and F7 when free; a key OMSI's file
+    /// gives something else (F11, the pedestrian view) leaves it for the next one, and a file's
+    /// own entry is kept.
+    #[test]
+    fn the_stalium_hud_keys_take_the_first_free_key() {
+        let key = |c: &KeyboardCfg, a: &str| c.game.iter().filter(|b| b.action == a).map(|b| (b.scan_code, b.modifier)).collect::<Vec<_>>();
+        let cfg = KeyboardCfg::default().with_game_defaults().with_game_defaults();
+        assert_eq!(key(&cfg, "stalium_tablet"), vec![(87, 0)]);
+        assert_eq!(key(&cfg, "stalium_sheet"), vec![(68, 0)]);
+        assert_eq!(key(&cfg, "stalium_hud"), vec![(65, 0)]);
+        let ego = KeyBinding { action: "view_set_ego".into(), scan_code: 87, modifier: 0 };
+        let cfg = KeyboardCfg { game: vec![ego], ..Default::default() }.with_game_defaults();
+        assert_eq!(key(&cfg, "stalium_tablet"), vec![(66, 0)]);
+        let own = KeyBinding { action: "stalium_sheet".into(), scan_code: 0, modifier: 0 };
+        let cfg = KeyboardCfg { game: vec![own.clone()], ..Default::default() }.with_game_defaults();
+        assert_eq!(cfg.game.iter().filter(|b| b.action == "stalium_sheet").collect::<Vec<_>>(), vec![&own]);
     }
 
     #[test]

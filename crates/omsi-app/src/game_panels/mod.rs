@@ -16,6 +16,8 @@ mod move_here;
 pub(crate) use dest_form::open as open_dest_form;
 pub(crate) use move_here::ask as ask_move;
 pub(crate) mod quick_menu;
+// Stalium: the company's HUD (bar, tablet, road sheet)
+pub(crate) mod stalium_hud;
 pub(crate) mod trip_summary;
 pub(crate) mod view_editor;
 #[cfg(test)]
@@ -40,12 +42,14 @@ pub(crate) struct GamePanels {
     pub(crate) view: Option<view_editor::ViewEditor>,
     /// Where the map camera's click asks to move the bus to.
     pub(crate) move_to: Option<glam::DVec3>,
+    /// Stalium's HUD: its tablet and road sheet open, hidden or not.
+    pub(crate) stalium: stalium_hud::StaliumHud,
 }
 
 impl GamePanels {
     /// Whether any panel is open.
     pub(crate) fn any(&self) -> bool {
-        self.quick.is_some() || self.trip.is_some() || self.dest.is_some() || self.view.is_some() || self.move_to.is_some()
+        self.quick.is_some() || self.trip.is_some() || self.dest.is_some() || self.view.is_some() || self.move_to.is_some() || self.stalium.tablet || self.stalium.sheet
     }
 
     /// Whether the panels have the mouse.
@@ -124,6 +128,7 @@ impl crate::App {
                 "dest" => dest_form::click(self, el),
                 "view" => view_editor::click(self, el),
                 "move" => move_here::click(self, el),
+                "st_tablet" | "st_sheet" => stalium_hud::click(self, c.panel.as_str(), el),
                 _ => {}
             }
         }
@@ -159,13 +164,16 @@ impl crate::App {
                 }
             }
         }
-        let panels: Vec<(&str, Option<Panel>)> = vec![
+        let screen_width = self.menus.game_panels.ui.screen()[0];
+        let stalium = stalium_hud::panels(self, screen_width);
+        let mut panels: Vec<(&str, Option<Panel>)> = vec![
             ("view", self.menus.game_panels.view.as_ref().map(|v| v.panel(self))),
             ("trip", self.menus.game_panels.trip.as_ref().map(|t| t.panel())),
             ("dest", self.menus.game_panels.dest.as_ref().map(|d| d.panel())),
             ("quick", self.menus.game_panels.quick.as_ref().map(|q| q.panel(self))),
             ("move", self.menus.game_panels.move_to.map(move_here::panel)),
         ];
+        panels.extend(stalium);
         let gp = &mut self.menus.game_panels;
         for (id, p) in panels {
             match p {
@@ -243,7 +251,9 @@ impl crate::App {
             if gp.quick.take().is_some() {
                 return true;
             }
-            return gp.trip.is_some() || gp.dest.is_some() || gp.move_to.is_some();
+            // (the road sheet is a form: a press beside it stays its; beside the tablet it is
+            // the bus's)
+            return gp.trip.is_some() || gp.dest.is_some() || gp.move_to.is_some() || gp.stalium.sheet;
         };
         match (pr.kind, pr.element.as_deref()) {
             (crate::plugin_ui::HitKind::Slider, Some(el)) => {
@@ -295,6 +305,9 @@ impl crate::App {
     pub(crate) fn close_game_panel(&mut self) -> bool {
         let gp = &mut self.menus.game_panels;
         if gp.quick.take().is_some() || gp.move_to.take().is_some() || gp.dest.take().is_some() || gp.trip.take().is_some() {
+            return true;
+        }
+        if std::mem::take(&mut gp.stalium.sheet) || std::mem::take(&mut gp.stalium.tablet) {
             return true;
         }
         if gp.view.is_some() {

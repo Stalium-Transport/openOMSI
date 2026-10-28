@@ -1013,7 +1013,7 @@ fn distance_driven(metres: f64) -> String {
 
 /// The passenger places (`[passpos]`) in the player's bus and any coupled sections: nobody
 /// boards once they are all taken (None: no passenger cabin to count).
-fn passenger_capacity(vehicle: &omsi_sim::VehicleInstance) -> Option<usize> {
+pub(crate) fn passenger_capacity(vehicle: &omsi_sim::VehicleInstance) -> Option<usize> {
     let sections =
         std::iter::once(&vehicle.ty).chain(vehicle.trailers.iter().map(|trailer| &trailer.ty));
     let mut capacity = 0;

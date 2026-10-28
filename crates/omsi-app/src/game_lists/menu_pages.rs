@@ -29,6 +29,7 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "timetable_win", "Timetable window (Insert)", "Displays a list of all stops (only when a tour is active)"),
         switch_row(app, "trip_summary", "Trip summary", "At the end of each trip: its stops with the times planned and driven, to copy or to save"),
         switch_row(app, "info_bar", "Information bar (Shift+Y)", "Displays information such as the time, speed, and other details at the top of the screen"),
+        switch_row(app, "stalium_hud", "HUD Stalium Transport", "Le bandeau Stalium en haut de l'écran à la place de la barre d'informations, la tablette (F11) et la feuille de route (F10) ; F7 le masque"),
         switch_row(app, "exact_fare", "Passengers pay the exact fare", "No change is given at the cash desk"),
         switch_row(app, "full_tank", "Start with a full tank", "Each new bus starts with its tank full (many maps have no petrol station); a saved situation keeps its own"),
         switch_row(app, "pax_bad_driving", "Passengers react to bad driving", "They complain about rough driving and may get off at the next stop"),
