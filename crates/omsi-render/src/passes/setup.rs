@@ -113,6 +113,7 @@ impl Renderer {
         // the plain graphics with Enhanced on); the first eye is the one that moves the
         // exposure, the sky cube and the frame clock on, as the window does without VR.
         let xr_view = projection.is_some();
+        let eye_color = enhanced_view && !with_overlays && xr_view && self.hdr_eye_pass.is_some();
         let lead_view = (with_overlays || xr_view) && !second_eye;
         let enhanced_frame = lighting.enhanced && self.hdr_pass.is_some() && !env.no_enhanced && (with_overlays || xr_view || env.mirror_enhanced || self.options.mirror_enhanced);
         // the mirrors are drawn by the same path as the window (their picture graded with
@@ -134,8 +135,10 @@ impl Renderer {
             cam_rel,
             view_proj: projection.is_none().then(|| camera.view_proj(aspect, ro)),
             vehicle: lighting.inside.as_ref().map(|b| (b, lighting.inside_rotation)),
+            // (the cube maps' tiles are there only if the atlas was made with them)
+            level: self.options.light_shadows.min(if self.shadows.lamp_atlas.has_cubes() { 2 } else { 1 }),
         };
-        let (grid, lamp_shadows) = self.prepare_lights(scene, &eye, enhanced_frame, lighting.lamp_shadows && with_overlays && projection.is_none() && self.shadows.shadow_pipelines.len() > 6);
+        let (grid, lamp_shadows) = self.prepare_lights(scene, &eye, enhanced_frame, lighting.lamp_shadows && self.options.light_shadows > 0 && with_overlays && projection.is_none() && self.shadows.shadow_pipelines.len() > 6);
         self.prepare_coronas(scene, lighting.night, lighting.inside.as_ref().filter(|v| point_in_vehicle_box(camera.position, v)));
         // (the mirrors draw no smoke, see `encode_main_late`)
         if exclude_texture.is_none() {
@@ -150,6 +153,10 @@ impl Renderer {
         // surface (without multisampling, see `share_depth`)
         let depth_wanted = puddles_wanted || glass_on || (enhanced && (with_overlays || xr_view)) || (self.depth_readback && projection.is_none());
         let prepass_on = ao_on || depth_wanted;
+        // the terrain's paint laid into one albedo picture first: the window's enhanced
+        // picture, single-sampled, with the camera group's slot 8 free of the AO
+        let ground_ok = with_overlays && enhanced && projection.is_none() && !second_eye && !ao_on && !rt_frame && prepass_on && self.options.msaa <= 1
+            && exclude_texture.is_none() && !env.no_ground_pass && self.ground_eligible();
         let prepass_reach = if depth_wanted || env.no_ao_reach { f32::MAX } else { AO_PREPASS_REACH };
         // (only the bind group is made again, by `upload_draw_list`: dropping the instance
         // buffers for it wrote every instance's entries again at each render-scale step)
@@ -158,12 +165,20 @@ impl Renderer {
             scene.camera_bind_group = None;
             self.targets.hdr_targets.clear();
         }
+        // (the ground albedo picture only while that pass can run)
+        if prepass_on && self.ensure_ground(width, height, self.ground_eligible()) {
+            scene.camera_bind_group = None;
+        }
+        // (slot 8 holds the AO's picture or the ground albedo's: the group is made again when that changes)
+        if prepass_on && self.ground_bound.get() != self.ground_should_bind() {
+            scene.camera_bind_group = None;
+        }
         if rt_frame && self.rt.as_mut().is_some_and(|rt| rt.ensure_targets(&self.device, width, height)) {
             // the camera bind group must point at the new lighting texture
             scene.camera_bind_group = None;
         }
         if masked_frame {
-            self.hdr_targets(width, height);
+            self.hdr_targets(width, height, rt_gbuf() && !eye_color);
         }
         if glass_on {
             self.prepare_glass_behind(scene, width, height, if masked_frame { HDR_FORMAT } else { self.format });
@@ -211,6 +226,7 @@ impl Renderer {
             aspect,
             cam_rel,
             xr_view,
+            eye_color,
             lead_view,
             enhanced_frame,
             enhanced,
@@ -221,6 +237,7 @@ impl Renderer {
             lamp_shadows,
             rt_frame,
             ao_on,
+            ground_ok,
             prepass_on,
             prepass_reach,
             dt,
@@ -411,6 +428,7 @@ impl Renderer {
                 std::array::from_fn(|r| std::array::from_fn(|c| at[r * 4 + c]))
             },
             lod: [self.fsr_mip_bias(f), 0.0, 0.0, 0.0],
+            spot: classic_spot(scene, ro),
         };
         self.queue
             .write_buffer(&self.camera_buf, 0, bytemuck::bytes_of(&cu));
@@ -464,4 +482,24 @@ impl Renderer {
             && self.prepare_enhanced(lighting, cam_rel, ro, f.dt);
         (vp_mat, cu, probe_redraw)
     }
+}
+
+/// The camera uniform's `spot`: the player's `[spotlight]`, the one classic spot of kind 1
+/// (the scene gives the player's alone, as Omsi.exe lights the road by it alone, 0x708acc);
+/// none while it is off or in a frame without a player's vehicle.
+fn classic_spot(scene: &Scene, ro: DVec3) -> [[f32; 4]; 4] {
+    let spot = scene.lights.iter().find_map(|l| {
+        let [range, setback, kind] = l.d3d_spot?;
+        (kind > 0.5 && l.mode == crate::LightMode::Vanilla && l.intensity > 0.0).then_some((l, range, setback))
+    });
+    let Some((l, range, setback)) = spot else { return [[0.0; 4]; 4] };
+    let at = (l.position - ro).as_vec3();
+    let d = l.direction.normalize_or_zero();
+    let c = l.color;
+    [
+        [at.x, at.y, at.z, range],
+        [d.x, d.y, d.z, l.cone[1]],
+        [c[0] * l.intensity, c[1] * l.intensity, c[2] * l.intensity, l.cone[0]],
+        [setback, 0.0, 0.0, 0.0],
+    ]
 }

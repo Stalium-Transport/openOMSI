@@ -216,6 +216,8 @@ impl Renderer {
         // the driver's compiled pipelines kept for the next start (Vulkan, OpenGL)
         if !intel_vulkan_safe {
             required_features |= pipeline_cache::wanted(&adapter);
+            // (the vehicles' blank display textures cleared on the GPU, `add_blank_texture`)
+            required_features |= adapter.features() & wgpu::Features::CLEAR_TEXTURE;
         }
         // Enhanced+: hardware ray queries where the device has them (Apple silicon from the
         // M3/A17 on, RTX and RDNA 2 cards and newer through Vulkan and Direct3D 12 - with DXC,
@@ -532,7 +534,7 @@ impl Renderer {
         }
         let scene = scene::SceneBase::new(&device, leave_out_enhanced);
         let hdr_format = wgpu::TextureFormat::Rgba16Float;
-        let shadows = shadows::build(&device, &scene, shadow_size, !leave_out_enhanced && !options.no_enhanced);
+        let shadows = shadows::build(&device, &scene, shadow_size, !leave_out_enhanced && !options.no_enhanced, options.light_shadows >= 2);
         let defaults = defaults::build(&device, &queue, options.anisotropy);
         let (coronas, corona_texture) = coronas::Coronas::new(&device, &queue, &scene);
         let precip = crate::passes::PrecipMap::new(&device);
@@ -540,14 +542,17 @@ impl Renderer {
         let rain = coronas::Precip::rain(&device, &scene.camera_layout, &precip.view);
         drop(corona_texture);
         let sky = sky::SkyBase::new(&device, &queue, &scene.camera_layout, !leave_out_enhanced);
-        let passes = passes::PassKit { device: &device, scene: &scene, coronas: &coronas, snow: &snow, rain: &rain, sky: &sky, msaa }
-            .build(format, hdr_format, leave_out_enhanced);
+        let sky_pipelines = sky.pipeline_base();
+        let kit = passes::PassKit { device: &device, scene: &scene, coronas: &coronas, snow: &snow, rain: &rain, sky: &sky_pipelines, msaa };
+        let eye_pipeline_kit = (!leave_out_enhanced && options.ray_tracing).then(|| passes::EyePipelineKit::new(&kit));
+        let passes = kit.build(format, hdr_format, leave_out_enhanced);
         let (sky_sampler, sky_mesh) = sky::dome(&device, &queue);
         let overlays = overlays::Overlays::new(&device, format, msaa);
         let gl = GL_BACKEND.load(std::sync::atomic::Ordering::Relaxed);
         let ssao = ssao::ssao(&device, gl);
         let fog_lamps = ssao::fog_lamps(&device, &scene.camera_layout, hdr_format, gl);
         let prepass = scene::prepass(&device, &scene, msaa, !leave_out_enhanced);
+        let ground_pipelines = (!gl && !leave_out_enhanced && !sixteen_texture_units()).then(|| std::array::from_fn(|i| scene.ground_pipeline_at(&device, i)));
         let mip = mip::build(&device);
         let post = post::build(&device, format, hdr_format, &defaults.white_texture);
         let enhanced = enhanced::build(&device, &queue, hdr_format, &defaults.camera_buf, &sky, !leave_out_enhanced);
@@ -575,6 +580,7 @@ impl Renderer {
                 evicted_at: std::time::Instant::now(),
                 hdr_targets: HashMap::new(),
                 ao: None,
+                ground: None,
                 depth: None,
                 msaa_targets: HashMap::new(),
             },
@@ -594,6 +600,7 @@ impl Renderer {
             },
             sky: SkyRes {
                 sky_lut: enhanced.sky_lut,
+                cloud_field: FieldState::default(),
                 sky_lut_view: enhanced.sky_lut_view,
                 sky_state: None,
                 city_glow: None,
@@ -670,6 +677,7 @@ impl Renderer {
             },
             history: ViewHistory {
                 triple_culling: Default::default(),
+                xr_culling: Default::default(),
                 flicker: std::cell::RefCell::new(HashMap::new()),
                 main_bundles: Default::default(),
                 mirror_bundles: Default::default(),
@@ -713,6 +721,9 @@ impl Renderer {
             ao_buf: ssao.buf,
             prepass_pipelines: prepass.pipelines,
             prepass_msaa_pipelines: prepass.msaa_pipelines,
+            prepass_eye_pipelines: prepass.eye_pipelines,
+            ground_pipelines,
+            ground_bound: std::cell::Cell::new(false),
             ssao_pipeline: ssao.ssao_pipeline,
             blur_pipeline: ssao.blur_pipeline,
             plain_ssao_pipeline: ssao.plain_ssao_pipeline,
@@ -724,6 +735,8 @@ impl Renderer {
             material_layout: scene.material_layout,
             pass: passes.pass,
             hdr_pass: passes.hdr_pass,
+            hdr_eye_pass: passes.hdr_eye_pass,
+            eye_pipeline_kit,
             reflection_pass: passes.reflection_pass,
             overlay_pipeline: overlays.pipeline,
             overlay_layout: overlays.layout,

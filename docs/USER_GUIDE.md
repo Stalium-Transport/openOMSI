@@ -191,7 +191,7 @@ where keyboard.cfg does not make it the ticket desk camera.
 The mouse wheel (and **=** / **-**, a pinch on a phone) zooms: outside the camera comes closer,
 inside the bus the view narrows, as in OMSI; **Ctrl**+wheel outside narrows the view instead
 (a telephoto, the camera stays where it is). F1-F4 driver / passenger / outside / map (free) camera, F5-F8 the destination
-sign and roller blind keys as in OMSI, Ctrl+S quick save (OMSI's `quicksave`; Alt+S works too), F9 write the
+sign and roller blind keys as in OMSI, Ctrl+S quick save (OMSI's `quicksave`; Alt+S works too), **Alt+F** the flashlight (a lamp at the eye that shines where the view looks; plain F is the bus's high beam), F9 write the
 run into the personnel file, WASD+QE in the free camera (**Ctrl**+click on the ground there
 moves the bus to the nearest street), left click on cockpit elements, the chat key (**/** by default, see Controls) opens the chat line in a
 LAN session.
@@ -361,10 +361,25 @@ The menu on the left groups the pages: **Play** (Drive, Multiplayer, Running gam
   a community controller mapping also makes a gamepad (a Logitech G29) is listed once, and
   *Use this device* switches any device off (it is then neither read nor listed as
   steering); **Remove this device** (after a confirmation) takes one out of the list. Select a
-  device to adjust *Steering force* (centering and resistance) and *Vibration* separately.
-  Changes are saved by themselves, for that device, in `~/.openomsi/Inputs/gamectrler.cfg`;
-  restart a running game to use the new values. *Force feedback and vibration* in Settings →
-  Driving is the global on/off switch.
+  device to adjust *Steering force* (centering and resistance) and *Vibration* separately,
+  and under *Fine tuning* how the wheel behaves on its own: *Self-centring* (0-200 %: how
+  strongly the moving bus turns the wheel back to straight after a turn; it never pulls while
+  the bus is stopped), *Damping* (0-300 %: how much the wheel resists fast movement, so a
+  released wheel settles at the centre instead of swinging past it - raise it if the wheel
+  oscillates), *Parking resistance* (0-200 %: how heavy the wheel is to turn while the bus
+  stands or crawls; it eases as the bus rolls), *Minimum force* (0-20 %: lifts the smallest
+  forces above the point where the wheel starts to feel them, for belt and gear wheels with a
+  dead centre; leave it at 0 on direct drive) and *Smoothing* (0-50 ms: softens sudden steps
+  in the steering force that feel grainy on strong wheels at low frame rates; more adds a
+  little delay). At their defaults (100 %, 100 %, 100 %, 0 %, 0 ms) the wheel feels as it
+  always did, and **Reset tuning** puts them back. The same rows are in the game: Controls →
+  *Game controllers* → the device → *Force feedback*, where a change applies at once.
+  Changes are saved by themselves, for that device, in `~/.openomsi/Inputs/gamectrler.cfg` -
+  the tuning in a section of its own, `[openOMSI.FFTuning]`, which OMSI 2 ignores, so the file
+  still works there (a wheel left at the defaults is saved without it). A running game takes
+  the launcher's changes the next time you drive, or at once with **Reload saved
+  controllers** in its controller menu. *Force feedback and vibration* in Settings → Driving
+  is the global on/off switch.
 * **Setup** - where the original installation and the game program are, and where the
   content folder (mods) and the settings and logs are. The OMSI 2 folder may be given as a
   path with quotes, as `Omsi.exe` itself or as a folder inside it; unpacked into the OMSI 2
@@ -392,7 +407,7 @@ lines, as in the game, whose default date is 1989-05-30.
 ## Settings, enhanced graphics, the navigator
 
 `~/.openomsi/settings.cfg` (written by the launcher's settings page, or by hand) holds
-`msaa` (1/2/4/8; a count the GPU cannot do falls back to the next lower one, and Enhanced+ draws 8 at 4), `anisotropy`
+`msaa` (1/2/4/8; a count the GPU cannot do falls back to the next lower one, and Real-Time Ray Tracing draws 8 at 4), `anisotropy`
 (1..16), `ssao`, `shadows`, `shadow_size`, `shadow_blobs` (the models' `[isshadow]` shadow
 meshes, OMSI's flat blob under a vehicle, laid on the road its wheels stand on; off, only the
 sun shadow map shades under a vehicle), `navigator`, `ui_opacity` (how much of the interface's backgrounds shows - the navigator's, the
@@ -444,8 +459,12 @@ it as well, up to twice, unless `ui_scale_window` is off; `notes` off hides the 
 top left corner; *Options* in the game menu changes it in quarters while driving, Left
 and Right), `steering_linear`, `old_steering` and `red_steer_spd` (the steering switches above),
 `ff_invert` (force feedback the other way round), `wheel_range` (the wheel's own rotation,
-lock to lock, 900° by default) and `wheel_lock` (how far it is turned for the bus's full
-lock; 0 = the whole wheel, as OMSI), `fov` (degrees for the views from the bus; 0 = the bus's
+lock to lock, 900° by default), `wheel_lock` (how far it is turned for the bus's full
+lock; 0 = the whole wheel, as OMSI) and `cab_wheel_rotation` (how far the steering wheel model
+in the cab turns, lock to lock: 180 to 1800 degrees in steps of 30, so it can match
+`wheel_range`; 0, the default, is the bus's own animation - *Automatic* in the launcher and
+the game's Options; a bus that turns its wheel from a script of its own keeps its own
+rotation), `fov` (degrees for the views from the bus; 0 = the bus's
 own cameras), `head_idle` (0..1, 0 by default: how far the view sways on its own - a head at
 rest breathes and shifts its weight, and 0 of it is exactly as OMSI; most of it is seen while
 the bus waits at a stop) and `head_idle_pace` (0.5..2: how fast that sway moves, 1 being the
@@ -524,7 +543,7 @@ less of the GPU's time (on an M4 at 1080p about 0.8 ms of a frame). The shade of
 moment, with a camera's middle-tone contrast; street lamps are bright points with a little
 glare in clear air and wide halos in mist and rain.
 
-Every light that lights the street casts a shadow (Enhanced and Enhanced+): the twenty street
+Every light that lights the street casts a shadow (Enhanced; Graphics: *Light has shadows*, `light_shadows=off|street|all`, *Street lamps and vehicles* by default): the twenty street
 lamps, floodlights and platform lights lighting the view most each have a shadow map that looks
 down from their head, the headlamps of the player's bus and of the cars in front of the camera
 one that looks along the road, and the lamps of the player's own saloon sixteen more, drawn in
@@ -541,7 +560,23 @@ quality* (Graphics) *As the picture* draws the mirrors of an Enhanced picture wi
 and sun shadows, *Standard* (the default) with the plain light, which costs a weak card less.
 `OMSI_NO_CABIN_SHADOWS=1` leaves the saloon's lamps without shadows for an A/B.
 
-`graphics=enhanced_plus` (Enhanced+ in the launcher, `--enhanced-plus`) is Enhanced with
+*Every light* (`light_shadows=all`) adds what the street lamps' map does not take: a spot that
+is no headlamp - a floodlight, a lamp that lights a door - looks along its own axis over its
+cone, and the two strongest lamps that shine every way (a bare point light, no street lamp's
+head) have a cube map of six tiles each, so a wall far to their side keeps their light off what
+lies behind it, not only what lies under them. There are fifty-six tiles in all, seven rows
+under the far shadow map. The clouds throw their shadow over the land as a field (*Cloud
+shadows and light shafts*, `cloud_shadows=0|1`; `OMSI_NO_CLOUD_SHADOW_FIELD=1` for an A/B): a
+square of nine kilometres worked out from the heaps the sky shows, in cloud space so that the
+wind moves it for free, read by the ground's sun and by the air, which scatters the sun's shafts
+through the gaps of a broken sky out to seven kilometres. *Glow of lights* (`light_glow=0|1`)
+draws the glare of a lens round every bright light, falling as the cube of the distance, and the
+lamps' halo in the haze of the night air. Wet roads and still water mirror what stands round
+them (*Real-Time Reflections*, `puddles=high|low|off`): the lamps and the lit windows of a
+street stream down a wet road at night.
+
+*Real-Time Ray Tracing* (`ray_tracing=1`, `--enhanced-plus`; a file of the days of Enhanced+,
+`graphics=enhanced_plus`, reads as Enhanced with it on) is Enhanced with
 hardware ray tracing, where the graphics card traces rays (Apple M3/M4 and newer, RTX and
 RDNA 2 cards and newer through Vulkan and Direct3D 12; elsewhere it draws as Enhanced, and
 should a driver refuse the ray tracing it falls back to Enhanced as well). Every solid mesh within
@@ -551,7 +586,13 @@ contact; cut-out leaves and fences keep the shadow map, whose texels they need),
 sky's occlusion within two metres, and reflections: wet roads, water, glass, envmapped
 and lacquered paint mirror what really stands around them, off the screen too, and the
 sky where nothing does. Its shadows, occlusion and reflections cannot be switched off
-apart. It shares Enhanced's tone curve, with the light a shade warmer and a light
+apart.
+
+The quality presets (*Quality preset*: Low, Medium, High, Extra, Max, Ultra) set the graphics mode
+as well as the options: Low is Vanilla, Medium Vanilla+ (what the game starts with), High and above
+Enhanced - High with the street lamps' shadows, the clouds' and the glow, Extra with the street light
+and the reflections in full, Max with every light's shadows, the mirrors drawn as the picture and
+shadow maps of 4096, Ultra with Real-Time Ray Tracing on top of all of it. It shares Enhanced's tone curve, with the light a shade warmer and a light
 vignette.
 `OMSI_NO_RT=1` opens no ray queries, `OMSI_NO_RT_GRADE=1` leaves its grade out,
 `OMSI_RT_REFL_HALF=1` traces the reflections at half size, `OMSI_DEBUG_RT=n` (see
@@ -619,7 +660,9 @@ the limit, the line and the time; below it the next stop, its distance, the time
 planned time and whether the bus is early or late, in the interface's language
 (`language`). Settings → General → *Navigator* also has *Navigator as a widget* (on by
 default: drag it anywhere and size it at its corner; `nav_widget`), *Navigator size*
-(`nav_size`), *3D buildings on the map* (`nav_3d`, on by default) and *Route arrows (as in
+(`nav_size`), *Classic 2D navigator* (`nav_classic_2d`, off by default) for a lighter
+top-down street map without detailed terrain and buildings, *3D buildings on the map*
+(`nav_3d`, on by default) and *Route arrows (as in
 OMSI 2)* over the road (`nav_arrows`, off by default). A click on the navigator (or
 **Shift+M**) opens the city map: a large window over the game
 with the whole map from above - every road with its street name (read from the map's

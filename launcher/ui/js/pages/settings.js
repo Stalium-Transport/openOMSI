@@ -12,6 +12,7 @@ import { UpdateRow, checkUpdates } from '../updates.js';
 import { SETTINGS_TABS, GRAPHICS_PROFILE_KEYS } from './settings-schema.js';
 import { VersionsDialog } from './versions.js';
 import { RadioStations } from './radio-stations.js';
+import { AiListsPage } from './ai-lists.js';
 import { OptimiseBlock } from './optimise.js';
 
 const REPO_URL = 'https://github.com/openOmsi-project/openOMSI';
@@ -71,11 +72,13 @@ export function SettingsPage() {
   return html`
     <${PageHead} title="Settings" text="Every change is saved at once; the game reads them when it starts." />
     <${Tabs} value=${current.id} options=${[...tabs.map((x) => [x.id, x.label]), ...(phone ? [] : [['troubleshoot', 'Troubleshooting']])]} onChange=${pick} />
-    <div class="settings-grid" key=${tab}>
+    ${current.page === 'ailists'
+      ? html`<div key=${tab}><${AiListsPage} /></div>`
+      : html`<div class="settings-grid" key=${tab}>
       ${current.cols.map((col) => html`<${Card} title=${col.title}>
         ${col.rows.filter((row) => visible(row, s.settings, platform)).map((row, i) => html`<${Row} key=${i + (row.key || row.id || row.label || row.title || '')} row=${row} ask=${ask} />`)}
       </${Card}>`)}
-    </div>
+    </div>`}
     ${dialog}
   `;
 }
@@ -163,7 +166,7 @@ function SliderRow({ row }) {
   };
   const value = shown ?? (isNaN(stored) ? row.def : stored);
   return html`<div class="setting-row full">
-    <${Slider} label=${row.label} value=${value} min=${row.min} max=${row.max} step=${row.step} format=${row.format} onChange=${onChange} />
+    <${Slider} label=${row.label} help=${row.help} value=${value} min=${row.min} max=${row.max} step=${row.step} format=${row.format} onChange=${onChange} />
   </div>`;
 }
 
@@ -194,18 +197,17 @@ const CUSTOM = {
   radio: () => html`<${RadioStations} />`,
 };
 
-/** The quality presets of the graphics mode chosen: the one the settings match, else
- * "Custom". A preset keeps the mode. */
+/** The quality presets, Low to Ultra: the one the settings match, else "Custom". A preset sets
+ * the graphics mode too (Low is Vanilla, Ultra Enhanced with everything on). */
 function PresetRow() {
-  const mode = S.settings.graphics || 'vanilla_plus';
   const [presets, setPresets] = useState([]);
   useEffect(() => {
     let gone = false;
-    call('graphics_presets', { mode })
+    call('graphics_presets', {})
       .then((p) => !gone && setPresets(p))
       .catch(() => !gone && setPresets([]));
     return () => (gone = true);
-  }, [mode]);
+  }, []);
   const s = S.settings;
   const matched = presets.find((p) => Object.entries(p.settings).every(([k, v]) => same(s[k], v)));
   const options = [...presets.map((p) => [p.name, p.name]), ['', 'Custom']];

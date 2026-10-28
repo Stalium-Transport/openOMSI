@@ -281,6 +281,7 @@ flags! {
     OMSI_ENV_PHOTO: Num, Debug, Use, "1", "0 leaves the environment photo out of the debug views.";
     OMSI_FAKE_GPU_ERROR: Text, Test, Frame, "-", "Fault injection: open, open-panic, pipeline, lost-build, build, lost, frame, mesh - the GPU error to simulate. Only in builds with omsi-render's `test-hooks` feature (on by default).";
     OMSI_FIXED_SCALE: Bool, Switch, Use, "off", "Keep the render scale fixed (no dynamic resolution).";
+    OMSI_FLASHLIGHT: Bool, Test, Use, "off", "Offscreen: the player's flashlight is on (in the window it is Alt+F).";
     OMSI_FLEET_AHEAD: Num, Test, Use, "FLEET_AHEAD", "Minutes ahead the timetable fleet is planned (for tests).";
     OMSI_FLEET_IDLE: Num, Test, Use, "FLEET_IDLE", "Seconds a fleet vehicle idles (shortened for tests).";
     OMSI_FOLLOW_CAM: Text, Test, Use, "-", "right,ahead,up,yaw,pitch: a camera in the followed car's frame.";
@@ -314,9 +315,11 @@ flags! {
     OMSI_HIDE_MESH: Text, Test, Use, "-", "a|b: leave out the meshes whose file names contain one of the parts.";
     OMSI_HIDE_WINDOW: Text, Test, Use, "-", "from,to: treat the window as hidden between these seconds.";
     OMSI_HOLE_PHOTO: Bool, Test, Use, "off", "With OMSI_ROAD_PHOTO: photograph from above down to 25 m under the lane (holes in the world).";
+    OMSI_HTML_ENGINE: Text, Switch, Use, "classic", "`modern` runs every [htmltexture] page on the modern engine (flexbox, modern JavaScript) instead of only those that ask with <meta name=\"omsi-engine\" content=\"modern\">; for comparing the two.";
     OMSI_HTML_FALLBACK_FONT: Text, Switch, Use, "-", "Font file for the html pages' characters Inter lacks (Hangul, CJK); else Malgun Gothic (Windows) or AppleGothic (macOS).";
     OMSI_HTML_FALLBACK_FONT_BOLD: Text, Switch, Use, "-", "With OMSI_HTML_FALLBACK_FONT: its bold face.";
     OMSI_IBIS_BUDGET: Num, Tuning, Use, "10", "Seconds the IBIS typist may take per entry.";
+    OMSI_IGNORE_TRANSPORT: Bool, Switch, Use, "off", "Run a vehicle on a map built for other transport modes (the log still says so).";
     OMSI_INPUT: Text, Test, Use, "-", "Scripted keyboard, mouse and camera input for window runs.";
     OMSI_INSTANCE: Text, Setup, Use, "-", "The id of a game instance started by the launcher (set for the child process).";
     OMSI_INTEL_FULL_GPU: Bool, Switch, Use, "off", "Keep the requested settings on an Intel Vulkan adapter.";
@@ -360,9 +363,10 @@ flags! {
     OMSI_NO_BUNDLES: Bool, Switch, Frame, "off", "Record the main pass directly instead of from render bundles.";
     OMSI_NO_CABIN_SHADOWS: Bool, Switch, Frame, "off", "Enhanced: the lamps of the player's saloon cast no shadows (A/B).";
     OMSI_NO_CLOUDS: Bool, Switch, Use, "off", "No clouds.";
+    OMSI_NO_CLOUD_SHADOW_FIELD: Bool, Switch, Use, "off", "Enhanced: the clouds' shadow is one number for the whole picture again, not a field over the land (A/B).";
     OMSI_NO_CORONAS: Bool, Switch, Frame, "off", "No light coronas.";
     OMSI_NO_CULL: Bool, Switch, Once, "off", "Draw every mesh from both sides (A/B).";
-    OMSI_NO_DRAW_ORDER_DEPTH: Bool, Switch, Once, "off", "An object's surfaces in one plane without the draw order's depth step (A/B).";
+    OMSI_NO_DRAW_ORDER_DEPTH: Bool, Switch, Once, "off", "An object's surfaces in one plane, and a spline laid on an earlier one at its height, without the draw order's depth step (A/B).";
     OMSI_NO_ENHANCED: Bool, Switch, Frame, "off", "Enhanced settings drawn with the plain path.";
     OMSI_NO_ENVMAP: Bool, Switch, Use, "off", "No environment maps.";
     OMSI_NO_FSR_MIP_BIAS: Bool, Switch, Frame, "off", "FSR 1 without its textures' mip bias (to compare).";
@@ -370,6 +374,7 @@ flags! {
     OMSI_NO_GLARE: Bool, Switch, Frame, "off", "No sun glare.";
     OMSI_NO_GLASS_PICTURE: Bool, Switch, Frame, "off", "No picture behind the glass (rain films).";
     OMSI_NO_GROUND_PAINT: Bool, Switch, Use, "off", "No painted ground layers.";
+    OMSI_NO_GROUND_PASS: Bool, Switch, Frame, "off", "The terrain's paint layers lit one by one again, not laid into one albedo picture first (A/B).";
     OMSI_NO_GROUND_SPLINE_BATCHING: Bool, Switch, Use, "off", "No batching of ground splines.";
     OMSI_NO_GUARD: Bool, Switch, Use, "off", "No start guard: a start that crashes or hangs is not healed by an update or by going back to the version before.";
     OMSI_NO_HARDWARE_ID: Bool, Switch, Once, "off", "LAN: the game sends no hardware identifier (a host can then turn the player away, and cannot ban the machine).";
@@ -404,7 +409,7 @@ flags! {
     OMSI_NO_SMOKE: Bool, Switch, Frame, "off", "No smoke.";
     OMSI_NO_SNOWFALL: Bool, Switch, Frame, "off", "No snowfall.";
     OMSI_NO_SPLINE_BATCHING: Bool, Switch, Use, "off", "No spline batching.";
-    OMSI_NO_SPLINE_HOLES: Bool, Switch, Use, "off", "Splines without hole rims.";
+    OMSI_NO_SPLINE_HOLES: Bool, Switch, Use, "off", "Keep the unfitted terrain mesh beneath aligned splines.";
     OMSI_NO_SPRAY: Bool, Switch, Use, "off", "No tyre spray.";
     OMSI_NO_SURF: Bool, Switch, Once, "off", "Every road as smooth as before (no surface texture) (A/B).";
     OMSI_NO_TEXCOMPRESS: Bool, Switch, Use, "off", "No runtime texture compression.";
@@ -478,6 +483,7 @@ flags! {
     OMSI_TERRAIN_ALIGN: Bool, Switch, Use, "off", "Align the terrain to the splines again at load (A/B; Omsi.exe does not).";
     OMSI_TEST_AVATAR: Text, Test, Test, "-", "Test only: an avatar FBX for the avatar loading test (`cargo test -p omsi-sim a_rocketbox_avatar_loads -- --ignored`).";
     OMSI_TEST_CONTENT: Text, Test, Test, "-", "Content root for tests that need real OMSI content.";
+    OMSI_TEST_LEGACY_TROLLEY_DRIVE: Bool, Test, Test, "off", "Test only: set by the trolley test on the child process it starts to run itself with the realistic physics on.";
     OMSI_TEST_PACKAGE_MAP: Text, Test, Test, "-", "Test only: the global.cfg of a map that carries a package, for the launcher route map test (`cargo test -p omsi-launcher-model the_package_of_a_real_map_is_exported -- --ignored`).";
     OMSI_TEST_WINE_DIR: Text, Test, Test, "-", "Plugin demo test: folder holding omsi-plugin-host.exe for Wine.";
     OMSI_TEXTURE_MEMORY: Num, Tuning, Use, "settings", "Texture budget in MB.";

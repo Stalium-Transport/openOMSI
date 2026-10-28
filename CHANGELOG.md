@@ -8,6 +8,135 @@ promoted to stable releases (see [docs/VERSIONING.md](docs/VERSIONING.md)); the 
 
 ### New
 
+- **Enhanced has options of its own, and the quality presets cross the modes.** Enhanced+ is no
+  longer a mode: it is Enhanced with *Real-Time Ray Tracing* switched on (`ray_tracing=1`; a
+  `graphics=enhanced_plus` file reads as that, and `--enhanced-plus` still asks for it for a run).
+  Graphics has *Light has shadows* (`light_shadows`: Off, Street lamps and vehicles, Every light),
+  *Cloud shadows and light shafts* (`cloud_shadows`), *Glow of lights* (`light_glow`),
+  *Real-Time Reflections* (the puddles' setting, now with the wet roads' and the water's) and
+  *Reflective objects reflect* (the reflection maps), next to the street light and the mirrors. The
+  presets are Low, Medium, High, Extra, Max and Ultra, and each sets the mode too: Low is Vanilla,
+  Medium Vanilla+ (what the game starts with), High to Max Enhanced with more switched on at each
+  step, Ultra Enhanced with ray tracing and everything on. The launcher, the game's options, the
+  Apple app and the quality optimiser follow it; every new text is translated into all the
+  languages.
+- **The clouds' shadow lies over the land** (Enhanced): the sun is no longer one number for the
+  whole picture. A field of nine kilometres, worked out from the very heaps the sky shows and kept
+  in the sky table's texture, makes patches of sun and shade on the ground that the wind moves, and
+  the air scatters the sun's shafts through the gaps of a broken sky as far as seven kilometres.
+- **Lights shine and cast shadows in every direction** (Enhanced, *Light has shadows: Every
+  light*): a spot that is no headlamp gets a map along its own axis, the two strongest lamps that
+  shine every way a cube map of six tiles (fifty-six lamp tiles now), and a lamp in the dark has a
+  glare round it that falls as the cube of the distance and a halo in the night air (*Glow of
+  lights*).
+- **Wet roads and water mirror the street** (Enhanced): the sheen of a wet road and still water
+  trace what stands round them in screen space at their Fresnel share, not only the pools - the
+  lit windows and lamps of a street stream down a wet road at night.
+- **A flashlight (Alt+F)**: a hand lamp held beside the eye that shines where the view looks, a
+  warm white cone reaching 50 m with a soft edge, in the Vanilla and the Enhanced pictures, in
+  every view, by night in the dark or by day inside a dim cab. `flashlight` in keyboard.cfg's
+  `[game]` (or a controller button) switches it as well.
+- **The cab's steering wheel turns as far as yours** (*Cab wheel rotation*, in the launcher's
+  Settings › Driving › Game controllers and in the game's Options; `cab_wheel_rotation`): the
+  wheel model in the cab turns the set degrees lock to lock, 180° to 1800°, so a 900° or 1080°
+  wheel on the desk and the one in the bus move alike. *Automatic* (0, the default) keeps the
+  bus's own animation, as before. A bus that turns its wheel from a script of its own keeps its
+  own rotation.
+- **A modern engine for HTML screens (opt-in)**: a page that puts
+  `<meta name="omsi-engine" content="modern">` in its head runs on a second engine with flexbox,
+  `position` with `z-index`, borders, `calc()` and custom properties, attribute selectors,
+  combinators, gradients, shadows, and a full JavaScript engine (Boa): classes, `Promise`,
+  `async`/`await`, ES modules, `fetch` of the page's own files and a fuller DOM. Pages without
+  the line keep the classic engine and are not touched; `OMSI_HTML_ENGINE=modern` runs every page
+  on the modern one for comparing. See [docs/HTMLTEXTURE_MODERN.md](docs/HTMLTEXTURE_MODERN.md).
+- **Transport modes in the launcher**: maps and vehicles show their mode (tram, railway, metro,
+  trolleybus), the map and vehicle pickers can filter by it, and a vehicle that does not fit the
+  chosen map is marked with the reason and cannot be started (the game refuses it too).
+- **Signalling blocks, points and depot gates for the AI trains**: blocks of `signals.cfg` (given by
+  where they begin and end) hold AI trains one at a time, and the map's signal objects show
+  whether their block is free; the points of `switches.cfg` stay under a train, return to their
+  rest position, can be `manual` or locked by a signal; the first departure of a service comes out
+  of its depot's gate.
+- **The overhead wire and the third rail power the player's rail vehicle**: with a `catenary.cfg` or
+  `thirdrail.cfg` in the map's `transport` folder a tram's pantograph or a metro's shoe needs a live
+  section under it (dead sections and breaks stop the drive, a sagging line weakens it), a vehicle
+  says `[rail_power]` where it gets its current. `network.cfg` sets the class, street, third rail,
+  tunnel and speed of the rail lanes, and `switches.cfg` the speed of a diverging branch.
+- **AI trams, trains and metro trains by services**: the trips made from a map's `routes.cfg` are
+  routed by the game over the whole map's network (the lanes of the mode's kind nearest each
+  station, the shortest way through them, with the direction of the lanes respected) and timed
+  from the stretch lengths, the segment speeds, acceleration and the standing at stops; their
+  departures wait until the track is found, and a trip that cannot be routed is named in the log.
+- **Scripts for vehicles and map objects**: a vehicle can name Lua or `.oop` scripts with
+  `[vehicle_script]` that start when it becomes the player's and stop when it is left, with the
+  permissions of vehicle content (`ui`, `storage`, `vehicle_write`, `audio`). A `.sco` can name
+  scripts for the objects placed from it (`[lua_script]`, `[lua_range]`, `[lua_rate]`); they hear
+  `object_init`, `object_frame`, `object_click` and `object_gone` and drive their own objects
+  through the new `omsi.object.*` functions: variables, strings, `{trigger}`s, and moving,
+  turning, scaling or hiding single meshes. Scripts are told apart by their whole path, so two
+  folders may each hold a `gate.lua`. See [docs/PLUGINS.md](docs/PLUGINS.md) and
+  [docs/OBJECT_SCRIPTS.md](docs/OBJECT_SCRIPTS.md).
+- **Realistic rail physics** (with the setting "Realistic road physics", or `OMSI_REALISTIC_ROAD=1`;
+  off by default, so no existing tram, train or trolleybus drives differently without it):
+  - **Pantographs meet the wire**: a raised pantograph rises until its head touches the contact
+    wire and no further (the head's travel is measured on the model's own meshes and animations;
+    the script's variable is left alone, only the animation is shown the travel at which the head
+    is on the wire), presses it with its static force, and brings current only while it lies on a
+    live wire. The wire is the standard height of the class over the rails (kept within the
+    pantograph's reach; it is not read from the map yet), staggered across the track, harder at
+    forks and rougher in the wet and the frost. Where the wire is uneven at speed the head leaves
+    it: a break under current strikes an arc, drawn as sparks and a flash; lowering under load does
+    the same. `Panto_Height`, `Panto_Contact`, `Panto_Force`, `Panto_Arc` and `Panto_Powered` are
+    written for models and sounds.
+  - **Rail bodies ride on their springs**: heave, pitch and roll on the secondary suspension answer
+    the lateral acceleration of a bend, the traction and the brake and the unevenness of the rails
+    at each bogie, with damping. `rail_body_roll`, `rail_body_pitch`, `rail_body_heave`,
+    `rail_accel_side` and `rail_accel_vert` are written for scripts.
+  - **AI trams and trains** pull as their class does: the pull falls with speed at the class's power.
+  - **Legacy trolleybuses keep their script's traction**, including its gear and door-brake
+    interlocks, even with realistic physics enabled. An inferred generic drive stays inactive
+    until a script adapter can honor those controls. Explicitly configured trolleybus drives
+    and pole simulation remain available.
+
+- **Rail traction, brakes and couplings**: `[rail_traction]` (a curve of pull against speed, a
+  power limit, an electric brake), `[rail_brake]` (air with a brake pipe wave and filling
+  cylinders, electro-pneumatic or direct; the electric brake first, the friction brake the rest)
+  and `[rail_coupler]` (free play, draft gear, strength; a train pulled apart breaks in two) for
+  pedal-driven trams, metro and railway vehicles. Without the blocks nothing changes. See
+  [docs/RAIL.md](docs/RAIL.md#traction-brakes-and-couplings-of-a-vehicle-openomsi-blocks).
+- **Scripts that belong to a vehicle**: `[vehicle_script]` in a `.bus` or `.ovh` names a Lua or
+  `.oop` script that runs as a plugin while that vehicle is the player's, with the plugin API and
+  the permissions of vehicle content only (`ui`, `storage`, `vehicle_write`, `audio`). See
+  [docs/PLUGINS.md](docs/PLUGINS.md#scripts-that-belong-to-a-vehicle).
+- **Suspension types**: an axle can say `[suspension]` with `type coil | leaf | air |
+  progressive`. Leaf springs stiffen and rub (dry friction between the leaves); air bellows hold
+  the ride height of the empty vehicle whatever the load, through a levelling valve; axles
+  without the block are OMSI 2's strut, unchanged. See [docs/SUSPENSION.md](docs/SUSPENSION.md).
+- **The `transport` folder of a map**: stations with platforms, **routes without tours** (a
+  route is segments from station to station and the services that run over them: a line with a
+  branch, a short-turn or an express is more segments and another service), the overhead wire,
+  a third rail, switches, depots, signals and blocks, in plain text files. Check them with the
+  `transit_check` example. The data is read when the map opens and the problems are logged, and
+  every service runs as a timetable line (one tour per departure and direction) in the launcher,
+  the duty and the AI. See
+  [docs/TRANSPORT_FORMATS.md](docs/TRANSPORT_FORMATS.md).
+- **Transport modes**: a vehicle and a map can say what kind of transport they are for with
+  `[bus_transport]`, `[tram_transport]`, `[railway_transport]`, `[metro_transport]` and
+  `[trolleybus_transport]`. A bus does not start on a tram map and says why; a map with none of
+  them takes every vehicle, and a vehicle with none is judged by its shape as before, so nothing
+  that works now changes. The launcher lists the modes of maps and vehicles; timetable vehicles
+  and the AI pool respect them. See [docs/TRANSPORT_MODES.md](docs/TRANSPORT_MODES.md).
+- **AI Lists** (Settings, the new *AI Lists* tab): choose, map by map, which AI cars, lorries and
+  buses the traffic is made of and which buses run on which line - only from what is installed
+  (the AI vehicles and the buses, with every repaint), nothing new is added. *Traffic* changes the
+  weighted lists of the random traffic (replace a car by another, add or remove one, set how often
+  it appears); *Depot buses* changes a depot's types, fleet numbers, plates and repaints; *Lines*
+  makes a line run only, or mostly, the types you choose (a type the line's depot lacks is added to
+  it with a few buses). Every list and the picker show the vehicle in the 3D preview of the Drive
+  page. The map's own files are never touched: the changes are kept in the content folder
+  (`ailists_#user.cfg` and `car_use/!openomsi-ai-lists-*.ocu` of the map's folder, the format OMSI
+  itself reads), a group or a line can be reset on its own, and *Reset the map* deletes them, which
+  gives the map's defaults back. Translated into every language of the launcher.
 - **LAN protocol 15**: a game of this version cannot join a session of an older one, nor the
   other way round (the AI traffic goes as a table, see below). Update the game on both sides.
 - **Every light casts a shadow** (Enhanced and Enhanced+): the lamps' shadow maps were four, now
@@ -43,6 +172,22 @@ promoted to stable releases (see [docs/VERSIONING.md](docs/VERSIONING.md)); the 
   `OMSI_NO_BEAM_SHADOWS=1` draws the old picture. `OMSI_DEBUG_PAD=1` logs every game
   controller button event (the ones the assignment menu waits for), for a report that a
   pad's buttons cannot be assigned.
+
+**Controls**
+
+- **Force feedback can be tuned per wheel**: under *Fine tuning*, next to *Steering force* and
+  *Vibration*, a wheel has its own *Self-centring* (0-200 %: how strongly the moving bus turns
+  it back to straight; it never pulls at a standstill), *Damping* (0-300 %: a released wheel
+  settles at the centre instead of swinging past it), *Parking resistance* (0-200 %: how heavy
+  it is while the bus stands or crawls), *Minimum force* (0-20 %: lifts the smallest forces
+  past the dead centre of belt and gear wheels; 0 on direct drive) and *Smoothing* (0-50 ms:
+  softens grainy steps on strong wheels at low frame rates), with **Reset tuning** to go back.
+  They are on the launcher's Game controllers page and in the device's *Force feedback* tab of
+  the game's controller menu, where a change applies at once, and are kept in `gamectrler.cfg`
+  under `[openOMSI.FFTuning]`, which OMSI 2 ignores. The defaults keep today's feel, and a wheel
+  left at them is saved without the section
+  ([#2103](https://github.com/openOMSI-org/openOMSI/issues/2103),
+  [#3289](https://github.com/openOMSI-org/openOMSI/issues/3289)).
 
 **On foot**
 
@@ -366,6 +511,105 @@ promoted to stable releases (see [docs/VERSIONING.md](docs/VERSIONING.md)); the 
 
 ### Fixes
 
+- **The launcher starts as it did in 0.3.41.** 0.3.42 made the launcher write a pointer file beside its
+  program and copy data folders at start, and some antivirus programs and browsers took that for
+  harmful behaviour and blocked the download or the program. That change (the data folder choice
+  in Setup, #3243) is taken out again, so the launcher keeps its data in `~/.openomsi` as before;
+  it can return later in a form that leaves the program folder alone. Players who were blocked
+  can update to this version.
+- **A game whose graphics device is gone starts again by itself instead of sitting on the loading
+  screen** (#3232): when the driver stops answering without saying so, every graphics resource
+  becomes invalid and hundreds of errors a second follow while nothing is drawn. That rate is now
+  taken for a lost device, and the game restarts on its last situation with lighter graphics, as
+  it already did when the driver reported the loss.
+- **The restart after a lost graphics device is lighter** (#3323, #3328): the Enhanced extras (ray
+  tracing, every-light and lamp shadows, cloud shadows, the glow of lights) are switched off at the
+  first restart, and Enhanced itself gives way to Vanilla+ at the second.
+- **The navigator's map no longer ends with an error report when the graphics device is lost**: its
+  background builder stops quietly and the restart goes on.
+- **The log says where the game is stuck**: a part of a frame that has run for ten seconds is named
+  in `game.log` (and again every thirty seconds), so a report of a game that stays at a part of
+  the loading screen shows what it was doing (#3326).
+
+- **The navigator's map and the city map draw the whole ground again** (#3266, #3301): the cap on
+  the map's geometry that came in with the out-of-memory fix (#3249) cut the ground off on large
+  maps, so the in-game map showed street names over an empty background. The cap is gone from the
+  panel and the city map; #3249 is open again for another fix.
+- **The launcher's bus preview shows what the repaint chooses**: the showroom gives the bus
+  its paint scheme as the game does, so the scheme's `[setvar]`s are set again after the
+  scripts every frame (#3183). Set once when the bus was made, a script that writes them
+  itself overwrote them: the Kajosoft Jelcz M125M's JGSP Novi Sad repaint showed the
+  standard doors' white frames in the preview instead of the glazed doors.
+- **The headlights light the road as in OMSI 2 in Vanilla and Vanilla+**: the player's
+  `[spotlight]` is Omsi.exe's Direct3D spot light - from the spotlight's own place, 0.3 x its
+  colour as diffuse and 0.1 x as ambient light, attenuation 1 / (0.2 + d / R + 40 d² / R²),
+  its cone with a falloff of 2 - lit at the vertices as Direct3D lights them. The old fit
+  (full strength out to an eighth of the range, never below 15 % at a grazing angle) left a
+  flat sheet reaching far down the road with some buses and lit kerbs, hedges and trees
+  hardly at all. Measured against OMSI 2 with the Kajosoft Citaro, headlights on less off:
+  the road +6 / +7 / +8 / +7 / +6 from the bumper out (OMSI 2: +5 / +4 / +5 / +7 / +6), the
+  kerb +26 / +15 (+21 / +15). AI vehicles' spots light the road no longer, as in OMSI 2.
+- **AI traffic: a bus waiting to move over a lane no longer jams the street for good**: a car standing
+  in the lane a bus (or a car whose lane closes) waits to move over into took that vehicle for its
+  lead, so it stayed put even at a green light while the bus waited for it to move - both stood for
+  minutes, and the queue behind them with them (Spandau, the four-lane approach of the Altstadt
+  junction). The standing car now drives on after a few seconds. And a route's lane change that
+  the bus missed its window for (the two lanes no longer run side by side) is made all the same
+  after 12 s of waiting instead of never. `OMSI_DEBUG_STUCK` also says why a lane change waits.
+- **On foot, the player walks wherever the passengers' paths lead**: a staircase, a ramp, a gate
+  through a fence or a doorway the map gives the AI passengers is now walkable by hand too, at
+  the path's height (the step and slope limits and the walls no longer stop the walker on a
+  people's path), instead of only where the ground happens to allow it.
+- **The people boarding a timetable bus walk in to their seats**: in any bus but the player's they
+  stood in their seats the moment they stepped through the door, a jump in the saloon of every bus
+  that passed a stop. They now walk along the bus's own paths to the place reserved, as in the
+  player's bus (a bus without paths to the place keeps the jump).
+- **Timetable buses no longer stand at the stops that have no time of their own**: a bus that came to
+  such a stop early waited for the timetable's estimate (the running time shared out by distance)
+  up to two minutes, so a third of the buses stood over a minute with nobody getting on or off. They
+  now wait the length of a boarding at the most; the stops the timetable gives a time, the first and
+  the last stop keep their wait. `OMSI_DEBUG_STOPS` also logs how long each bus stood and why.
+- **The launcher's bus preview is no longer misted over**: the bus is made for it (the
+  showroom and `--export-glb`) on a mild day (22 °C) instead of at 0 °C, the temperature a
+  vehicle starts at without a weather. The
+  Kajosoft Citaro, Citaro Facelift and 628 fog every window up in their {init} below 10 °C,
+  so the preview always showed them misted; in the game the map's weather still decides.
+- **A bus's light cone on the road is a soft pool again in Vanilla and Vanilla+**: a self-lit
+  blended layer (emissive white, such as the KVB Citaro's `lichtkegel.o3d`) is given the
+  alpha that matches Omsi.exe's mix of gamma-encoded colours. Mixed in linear light on the
+  sRGB target, the faint cone (alpha 0.14 on average) was a flat beige sheet over the road,
+  about 40 % brighter than in OMSI 2.
+- **Köln's houses on Engeldorfer Straße are back**: a binary `.x` string ended by a WORD
+  token, as PAD-Labs' exporter writes it, no longer swallows the `}` after it. Read as the
+  documented DWORD, the house's material never closed, the model failed to load and its 25
+  binary houses were missing since 0.3.38.
+- **Bus shelters show through a bus's windows** instead of a white shape in Enhanced and
+  Enhanced+, or nothing at all in Vanilla. Grundorf's shelter is drawn "after vehicles"
+  (`[rendertype] 4`) and the bus's panes write depth, so it failed the depth test behind them,
+  and the houses behind it were already gone. The blended draws of `[rendertype]` 3 and 4 are
+  now sorted far to near with the normal objects', after the opaque draws of all of them
+  ([#2852](https://github.com/openOMSI-org/openOMSI/issues/2852)).
+- **Destination displays light up at night in Enhanced and Enhanced+**: a script's screen is
+  never taken for a pane. The EMT Citaro's Krueger matrix (Mallorca) is blended, writes no
+  depth and draws its letters through a `\S:n` transparency map - the layout of a window - so
+  the Enhanced pictures shaded it as glass, which gives no light of its own: its light map was
+  left out and its letters stayed grey at night, where Vanilla+ lights them
+  ([#2927](https://github.com/openOMSI-org/openOMSI/issues/2927)).
+- **London's road markings and red bus lanes stay put** when the camera moves away or around
+  the bus ([#2853](https://github.com/openOMSI-org/openOMSI/issues/2853)). A cut-out strip lying
+  just over the driving surface its spline declares (`[heightprofile]`) is paint, as one lying
+  just over the spline's line already was: Road-hog123's British markings lie 5 mm over a
+  10 cm surface. A spline laid on an earlier spline of its tile at the same height is drawn
+  over it, as Omsi.exe draws a tile's splines in order (the red lanes over the road fought it
+  for every pixel). And a spline laid on a `[surface]` object - Crystal Palace's carriageway is
+  one, its own tile's or the next one's - is pulled towards the eye as the object is, which
+  covered it from a few metres away or from above. `OMSI_NO_DRAW_ORDER_DEPTH=1` turns the
+  last two off.
+- **A paint scheme's `[setvar]` is what the bus shows**, also when a script writes the same
+  variable every frame: the scheme's values are set again after the scripts, as Omsi.exe
+  draws them. The Kajosoft Jelcz Vectus with the JGSP Novi Sad repaint chooses the glazed
+  doors (`v_drzwi 1`) and had the standard doors' white frames
+  ([#3183](https://github.com/openOMSI-org/openOMSI/issues/3183)).
 - **The MAN DN95 is no longer a mirror**: a texture a model asks for as `.dds` that is not
   there is missing, as in OMSI, instead of being stood in for by a `.bmp` or another file of the
   same name. The DN95's body asks for an `envmap.dds` it does not ship; its `envmap.bmp` (the
@@ -1002,6 +1246,9 @@ Additional security hardening and verification for mods, maps and online session
 - **Buses no longer sink into a street** with a road face buried under drawn ground (Ahlheim & Laurenzbach).
 - **Text textures** written with 255 as the full colour flag are no longer yellow.
 - **.x models**: texture coordinates and normals from DeclData (houses and trees drawn in one flat colour) and binary .x files (25 PAD-Labs houses were missing).
+
+### Fixes
+- **Train cars that run their own scripts take the paint's variables and the cables' signals.** A tram's second car, whose script is its own (the Konstal 105Na), started with the script's defaults and never got the paint's `[setvar]`s, so its destination boards, number plates and roof parts were missing in every livery but the plainest ([#3343](https://github.com/openOMSI-org/openOMSI/issues/3343)). It now wears the paint of the car in front, also when the paint is changed later. The cars' `[control_cable_*]` plugs now carry what a car's script writes down the train, car by car (a coupler or bogie without a script of its own passes it on), so the second car is powered, lit and braked with the first instead of waiting for its own start ([#3342](https://github.com/openOMSI-org/openOMSI/issues/3342)). Each car also measures the wire above its own pantograph (`GetHeightAbovePoint`), not the leading car's ([#3341](https://github.com/openOMSI-org/openOMSI/issues/3341)).
 
 ## 0.2.42 - 2026-10-12
 

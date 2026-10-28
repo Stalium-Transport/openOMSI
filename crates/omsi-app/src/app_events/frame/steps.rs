@@ -7,6 +7,7 @@
 use super::*;
 use crate::view_sync::people::PeopleView;
 use crate::view_sync::traffic::TrafficView;
+use omsi_sim::people::model::SaleEvent;
 
 /// The vehicles the AI traffic must see besides its own: the other LAN players' buses, the
 /// player's own and the ones the player placed - and, unless the game is paused, the
@@ -42,8 +43,20 @@ pub(crate) fn traffic_tick(
         });
         t.tick(dt, player.map(|p| player_outline(p)));
         let t0 = Instant::now();
-        world.set_switches(scenery, &t.switch_requests());
-        world.set_signals(scenery, &t.signal_aspects(&world.signal_routes, player_rail));
+        // the signals first: the switches that a clear signal locks read them
+        let aspects = t.signal_aspects(&world.signal_routes, player_rail);
+        if !t.switch_board.configured {
+            t.switch_board.configure(switch_rules(&world.transit));
+        }
+        let requests = t.switch_requests();
+        let requests = if world.transit.switches.list.is_empty() {
+            requests
+        } else {
+            let occupied = t.rail_occupied_pieces();
+            t.switch_board.decide(dt, &requests, &occupied, &aspects)
+        };
+        world.set_switches(scenery, &requests);
+        world.set_signals(scenery, &aspects);
         return t0.elapsed().as_secs_f64();
     }
     0.0
@@ -297,6 +310,27 @@ pub(crate) fn humans_after_step(
             }
         }
     }
+    for (bus, event) in h.take_money_events() {
+        let trigger = match event {
+            SaleEvent::PassengerGaveMoney => "ev_ticketsale_givemoney",
+        };
+
+        match bus {
+            None => {
+                if let Some(p) = player.as_deref_mut() {
+                    p.vehicle.host.fired_triggers.push(trigger.into());
+                }
+            }
+            Some(id) => {
+                if let Some(c) = traffic
+                    .as_deref_mut()
+                    .and_then(|t| t.cars.iter_mut().find(|c| c.id == id))
+                {
+                    c.vehicle.host.fired_triggers.push(trigger.into());
+                }
+            }
+        }
+    }
     if let Some(t) = traffic {
         let (alighting, waiting) = h.stop_wishes();
         t.set_stop_wishes(alighting, waiting);
@@ -482,6 +516,7 @@ pub(crate) fn picture_lighting(
         Some(w) => weather_lighting(daylight, w, cloud_drift, wetness, snow_cover, settings.shadows, sky),
         None => lights::lighting_from(daylight, 50000.0),
     };
+    lighting.lamp_shadows &= settings.lamp_shadows;
     lighting.wetness = omsi_cfg::flags::OMSI_WETNESS.parse()
         .unwrap_or(wetness);
     dress_lighting(&mut lighting, world, inside, settings);
@@ -555,4 +590,28 @@ pub(crate) fn push_mirror_hud(
     let start = scene.overlays.len();
     hud.push(scene, world, viewport[2], viewport[3], cursor);
     scene.shift_overlays(start, viewport[0]);
+}
+
+/// The switches `switches.cfg` configures, as the traffic's board has them: their rest position,
+/// how they are operated and the signal object that locks them.
+fn switch_rules(transit: &omsi_transit::TransitData) -> Vec<omsi_sim::ai_traffic::blocks::SwitchRule> {
+    use omsi_sim::ai_traffic::blocks::{SwitchDrive, SwitchRule};
+    transit
+        .switches
+        .list
+        .iter()
+        .filter_map(|w| {
+            let object = w.object?;
+            Some(SwitchRule {
+                object,
+                default_path: w.default_path(),
+                drive: match w.drive {
+                    omsi_transit::infra::Drive::Auto => SwitchDrive::Auto,
+                    omsi_transit::infra::Drive::Manual => SwitchDrive::Manual,
+                    omsi_transit::infra::Drive::Interlocked => SwitchDrive::Interlocked,
+                },
+                locked_by: w.locked_by.as_deref().and_then(|s| transit.signals.signals.iter().find(|x| x.id.eq_ignore_ascii_case(s))).and_then(|s| s.object),
+            })
+        })
+        .collect()
 }

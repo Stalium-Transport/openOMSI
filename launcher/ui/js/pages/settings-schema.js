@@ -39,10 +39,11 @@ const snap = (step) => (v) => Number((Math.round(v / step) * step).toFixed(4));
 
 // --- conditions -------------------------------------------------------------------------
 
-const mode = (s) => s.graphics || 'vanilla_plus';
+// (a file of the days of Enhanced+ names it as a mode: Enhanced with Real-Time Ray Tracing)
+const mode = (s) => (s.graphics === 'enhanced_plus' ? 'enhanced' : s.graphics || 'vanilla_plus');
 const classic = (s) => mode(s) === 'vanilla';
-const traced = (s) => mode(s) === 'enhanced_plus';
-const enhanced = (s) => mode(s) === 'enhanced' || traced(s);
+const enhanced = (s) => mode(s) === 'enhanced';
+const traced = (s) => enhanced(s) && (!!s.ray_tracing || s.graphics === 'enhanced_plus');
 const mobile = (s, p) => p === 'android' || p === 'ios';
 const windows = (s, p) => p === 'windows';
 const tripleOn = (s) => !!s.triple_screen;
@@ -80,10 +81,11 @@ const graphics = {
       title: 'Graphics',
       rows: [
         // the mode first, then the quality presets for it: they set most of what follows
-        { type: 'select', key: 'graphics', label: 'Graphics', options: [['vanilla', 'Vanilla (as OMSI 2)'], ['vanilla_plus', 'Vanilla+'], ['enhanced', 'Enhanced'], ['enhanced_plus', 'Enhanced+']] },
+        { type: 'select', key: 'graphics', label: 'Graphics', options: [['vanilla', 'Vanilla (as OMSI 2)'], ['vanilla_plus', 'Vanilla+'], ['enhanced', 'Enhanced']] },
+        { type: 'toggle', key: 'ray_tracing', label: 'Real-Time Ray Tracing', help: 'Enhanced: the sun\'s shadows, the ambient occlusion and the reflections traced with hardware ray queries, where the card has them; the heaviest option (takes effect when the game starts the next time)', heavy: (v) => !!v, when: enhanced },
         { type: 'custom', id: 'preset' },
         { type: 'custom', id: 'optimise' },
-        { type: 'select', key: 'msaa', label: 'Anti-aliasing', options: [['1', 'Off'], ['2', '2x MSAA'], ['4', '4x MSAA'], ['8', '8x MSAA']], heavy: (v, s) => v === '8' && s.graphics !== 'enhanced_plus' },
+        { type: 'select', key: 'msaa', label: 'Anti-aliasing', options: [['1', 'Off'], ['2', '2x MSAA'], ['4', '4x MSAA'], ['8', '8x MSAA']], heavy: (v, s) => v === '8' && !traced(s) },
         { type: 'select', key: 'upscaler', label: 'Upscaling', options: [['default', 'Standard (Catmull-Rom)'], ['fsr1', 'AMD FSR 1 (experimental)']], help: 'Standard Catmull-Rom or experimental FSR 1; changes show at once' },
         { type: 'select', key: 'fsr_quality', label: 'FSR quality', options: [['ultra', 'Ultra Quality (77%)'], ['quality', 'Quality (67%)'], ['balanced', 'Balanced (59%)'], ['performance', 'Performance (50%)'], ['auto', 'Automatic (keeps the frame rate)'], ['custom', 'Use render scale']], when: (s) => s.upscaler === 'fsr1' },
         { type: 'slider', key: 'fsr_sharpness', label: 'FSR sharpness', help: 'RCAS sharpening strength', min: 0, max: 1, step: 0.05, def: 0.8, store: snap(0.05), format: pct, when: (s) => s.upscaler === 'fsr1' },
@@ -91,7 +93,7 @@ const graphics = {
         { type: 'select', key: 'anisotropy', label: 'Anisotropic', options: [['1', 'Off'], ['2', '2x'], ['4', '4x'], ['8', '8x'], ['16', '16x']] },
         // Vanilla draws what OMSI 2 draws: no sun shadows, ambient occlusion or detail grain
         { type: 'select', key: 'shadow_size', label: 'Shadow map', options: [['1024', '1024'], ['2048', '2048'], ['4096', '4096']], when: (s) => !classic(s) },
-        // (Enhanced+ traces its shadows, occlusion and reflections: always on there)
+        // (with Real-Time Ray Tracing the shadows, occlusion and reflections are traced: always on)
         { type: 'toggle', key: 'ssao', label: 'Ambient occlusion', when: (s) => !classic(s) && !traced(s) },
         { type: 'toggle', key: 'shadows', label: 'Sun shadows', when: (s) => !classic(s) && !traced(s) },
         { type: 'select', key: 'shadow_casters', label: 'Shadows cast by', options: [['all', 'Every solid mesh'], ['omsi', '[shadow] meshes, as OMSI']], when: (s) => !classic(s) },
@@ -101,16 +103,22 @@ const graphics = {
         { type: 'slider', key: 'led_mips', label: 'LED mip strength', min: 0, max: 4, step: 0.05, def: 1.3, format: (v) => (v < 0.005 ? t('Off') : v.toFixed(2)), store: snap(0.05), when: enhanced },
         // (the `[isshadow]` blob under a vehicle is drawn in every mode, the vanilla one included)
         { type: 'toggle', key: 'shadow_blobs', label: "OMSI's shadow meshes (under vehicles)" },
-        { type: 'slider', key: 'reflections', label: 'Reflection maps (paint, chrome, glass)', min: 0, max: 1, step: 0.05, def: 1, format: (v) => (v < 0.005 ? t('Off') : pct(v)), store: snap(0.05), when: (s) => !traced(s) },
+        { type: 'slider', key: 'reflections', label: 'Reflective objects reflect', min: 0, max: 1, step: 0.05, def: 1, format: (v) => (v < 0.005 ? t('Off') : pct(v)), store: snap(0.05), when: (s) => !traced(s) },
         { type: 'toggle', key: 'clouds', label: 'Clouds' },
         // (only the enhanced modes march volumetric clouds; the vanilla ones are a texture)
         { type: 'select', key: 'cloud_quality', label: 'Cloud quality', options: [['high', 'High'], ['low', 'Low']], when: (s) => enhanced(s) && s.clouds !== false },
         // (the Enhanced picture's own: the ray-traced one has its own occlusion; Auto turns it off on a small or shared chip)
-        { type: 'select', key: 'street_light', label: 'Street light', options: [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']], when: (s) => mode(s) === 'enhanced' },
+        { type: 'select', key: 'street_light', label: 'Street light', options: [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']], when: (s) => enhanced(s) && !traced(s) },
+        // (the Enhanced picture's light: what casts shadows, the clouds' shadow over the land, the glare of lights)
+        { type: 'select', key: 'light_shadows', label: 'Light has shadows', options: [['off', 'Off'], ['street', 'Street lamps and vehicles'], ['all', 'Every light']], help: 'Enhanced: which lights cast shadows - the street lamps and the vehicles\' headlamps, or every light: spots along their own axis and the lamps that shine every way in cube maps. Cached maps, a few passes a frame', when: enhanced },
+        { type: 'toggle', key: 'cloud_shadows', label: 'Cloud shadows and light shafts', help: 'Enhanced: the clouds\' shadow moving over the land and the sun\'s shafts through the gaps of a broken sky', when: enhanced },
+        { type: 'toggle', key: 'light_glow', label: 'Glow of lights', help: 'Enhanced: the glare round bright lights and the lamps\' halo in the night air', when: enhanced },
         { type: 'select', key: 'rain_quality', label: 'Rain quality', options: [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']] },
         { type: 'select', key: 'vehicle_smoke', label: 'Vehicle smoke', options: [['all', 'All vehicles'], ['player', 'Player only'], ['off', 'Off']], help: 'Controls the vehicles\' smoke particles, not scenery effects or glowing particles.' },
         // (the wet roads' reflections need the reflection maps on)
-        { type: 'select', key: 'puddles', label: 'Puddles', options: [['high', 'High'], ['low', 'Low'], ['off', 'Off']], when: (s) => Number(s.reflections ?? 1) > 0.005 },
+        // (the same setting, named for what Enhanced makes of it)
+        { type: 'select', key: 'puddles', label: 'Puddles', options: [['high', 'High'], ['low', 'Low'], ['off', 'Off']], when: (s) => !enhanced(s) && Number(s.reflections ?? 1) > 0.005 },
+        { type: 'select', key: 'puddles', label: 'Real-Time Reflections', options: [['high', 'High'], ['low', 'Low'], ['off', 'Off']], when: (s) => enhanced(s) && Number(s.reflections ?? 1) > 0.005 },
         { type: 'toggle', key: 'windy_trees', label: 'Windy trees' },
       ],
     },
@@ -185,6 +193,8 @@ const driving = {
         // about two and a half turns)
         { type: 'slider', key: 'wheel_range', label: 'Wheel rotation', min: 180, max: 1800, step: 30, def: 900, format: deg, store: round },
         { type: 'slider', key: 'wheel_lock', label: 'Full lock at', min: 0, max: 1800, step: 30, def: 0, format: (v) => (v < 45 ? t('OMSI') : deg(v)), store: (v) => (v < 45 ? 0 : Math.round(v)) },
+        // how far the cab's own steering wheel model turns (0: as the bus's animation)
+        { type: 'slider', key: 'cab_wheel_rotation', label: 'Cab wheel rotation', min: 0, max: 1800, step: 30, def: 0, format: (v) => (v < 90 ? t('Automatic') : deg(v)), store: (v) => (v < 90 ? 0 : Math.round(v)), help: "How far the steering wheel in the cab turns, lock to lock. Automatic = as the bus's own model; set it to your wheel's rotation so both turn alike. Some mod buses animate their wheel from a script of their own and keep their own rotation." },
         { type: 'slider', key: 'pedal_throttle', label: 'Throttle pedal strength', min: 0.5, max: 2, step: 0.05, def: 1, format: pedal, store: r2 },
         { type: 'slider', key: 'pedal_brake', label: 'Brake pedal strength', min: 0.5, max: 2, step: 0.05, def: 1, format: pedal, store: r2 },
         { type: 'toggle', key: 'momentary_gears', label: 'H-pattern shifter: return to neutral when the gear is released' },
@@ -198,15 +208,15 @@ const driving = {
         { type: 'slider', key: 'pad_deadzone', label: 'Stick dead zone', min: 0, max: 0.4, step: 0.01, def: 0.08, format: (v) => `${(v * 100).toFixed(0)} %`, store: r2 },
         { type: 'toggle', key: 'pad_steer_linear', label: 'Stick steers like a wheel (a wheel seen as a gamepad)' },
         { type: 'section', title: 'Force feedback' },
-        { type: 'toggle', key: 'ff_enabled', label: 'Force feedback and vibration' },
+        { type: 'toggle', key: 'ff_enabled', label: 'Force feedback and vibration', help: "Off: the game sends the wheel no forces; any resistance left comes from the wheel's own driver software (for example the centre spring in Logitech G HUB)" },
         { type: 'toggle', key: 'ff_invert', label: 'Invert force feedback by default' },
         { type: 'note', text: 'Wheels with a saved direction use their own setting under Controls → Game controllers.' },
         // what the wheel feels all the time: the road's grain, the engine's buzz, and how
         // long a jolt eases away
         { type: 'slider', key: 'ff_road_vib', label: 'Road texture vibration', min: 0, max: 4, step: 0.05, def: 1, format: vibration, store: (v) => Math.round(v * 20) / 20 },
-        { type: 'slider', key: 'ff_engine_vib', label: 'Engine vibration', min: 0, max: 4, step: 0.05, def: 1, format: vibration, store: (v) => Math.round(v * 20) / 20 },
+        { type: 'slider', key: 'ff_engine_vib', label: 'Engine vibration', help: 'The running engine buzzes in the wheel, felt even at a standstill', min: 0, max: 4, step: 0.05, def: 1, format: vibration, store: (v) => Math.round(v * 20) / 20 },
         { type: 'slider', key: 'ff_fade', label: 'Vibration fade-out', min: 0, max: 1.5, step: 0.05, def: 0.28, format: (v) => (v < 0.01 ? t('Off') : `${Math.round(v * 1000)} ms`), store: r2 },
-        { type: 'button', label: 'Reset wheel settings', icon: 'refresh', patch: () => ({ wheel_range: 900, wheel_lock: 0, ff_invert: false, ff_enabled: true, ff_road_vib: 1, ff_engine_vib: 1, ff_fade: 0.28 }) },
+        { type: 'button', label: 'Reset wheel settings', icon: 'refresh', patch: () => ({ wheel_range: 900, wheel_lock: 0, cab_wheel_rotation: 0, ff_invert: false, ff_enabled: true, ff_road_vib: 1, ff_engine_vib: 1, ff_fade: 0.28 }) },
       ],
     },
   ],
@@ -428,6 +438,7 @@ const general = {
         { type: 'toggle', key: 'nav_ai', label: 'AI vehicles on the map' },
         { type: 'toggle', key: 'nav_surface', label: 'Map surface under the roads' },
         { type: 'toggle', key: 'nav_light', label: 'Light map' },
+        { type: 'toggle', key: 'nav_classic_2d', label: 'Classic 2D navigator (lightweight)' },
         { type: 'toggle', key: 'nav_3d', label: '3D buildings on the map' },
         { type: 'toggle', key: 'nav_widget', label: 'Navigator as a widget (drag it anywhere, size it at its corner)' },
         { type: 'slider', key: 'nav_size', label: 'Navigator size', min: 0.6, max: 2, step: 0.05, def: 1, format: (v) => `${Math.round(v * 100)} %` },
@@ -454,12 +465,15 @@ const general = {
   ],
 };
 
+/** AI Lists: no settings - the page draws its own editor (ai-lists.js). */
+const aiLists = { id: 'ailists', label: 'AI Lists', page: 'ailists', cols: [], when: (s, p) => !mobile(s, p) };
+
 // (the content test, once a tab here, is the model test of Help -> Troubleshooting now: troubleshoot.js;
 // the Settings tab "Troubleshooting" leads there, settings.js)
-export const SETTINGS_TABS = [graphics, driving, camera, sound, gameplay, general];
+export const SETTINGS_TABS = [graphics, driving, camera, sound, gameplay, general, aiLists];
 
 /** The settings a saved graphics profile holds (`GRAPHICS_PROFILE_KEYS`). */
 export const GRAPHICS_PROFILE_KEYS = [
-  'graphics', 'msaa', 'render_scale', 'upscaler', 'fsr_quality', 'fsr_sharpness', 'anisotropy', 'shadow_size', 'ssao', 'shadows', 'shadow_casters', 'detail_textures', 'night_brightness', 'led_glow', 'led_mips', 'shadow_blobs', 'reflections', 'clouds', 'cloud_quality', 'street_light', 'rain_quality', 'vehicle_smoke', 'puddles', 'windy_trees',
+  'graphics', 'msaa', 'render_scale', 'upscaler', 'fsr_quality', 'fsr_sharpness', 'anisotropy', 'shadow_size', 'ssao', 'shadows', 'shadow_casters', 'detail_textures', 'night_brightness', 'led_glow', 'led_mips', 'shadow_blobs', 'lamp_shadows', 'reflections', 'clouds', 'cloud_quality', 'street_light', 'rain_quality', 'vehicle_smoke', 'puddles', 'windy_trees', 'ray_tracing', 'light_shadows', 'cloud_shadows', 'light_glow',
   'vsync', 'max_fps', 'view_distance', 'max_obj_dist', 'min_obj_size', 'mirror_size', 'mirror_refresh', 'mirror_quality', 'mirror_hud_every_frame', 'video_memory', 'texture_compression', 'gpu_texture_compression',
 ];

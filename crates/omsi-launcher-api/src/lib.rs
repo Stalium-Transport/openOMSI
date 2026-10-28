@@ -303,10 +303,9 @@ fn option_presets() -> Answer {
     Ok(json!(core::option_presets().into_iter().map(|(name, v)| json!({ "name": name, "settings": v })).collect::<Vec<_>>()))
 }
 
-/// The four quality presets of a graphics mode (vanilla, enhanced ...).
-fn graphics_presets(mode: String) -> Answer {
-    let mode = core::graphics_mode(&mode);
-    Ok(json!(core::graphics_presets_for(mode).into_iter().map(|(name, v)| json!({ "name": name, "settings": v })).collect::<Vec<_>>()))
+/// The six quality presets, Low to Ultra (the mode asked for is of the days when they kept it).
+fn graphics_presets(_mode: String) -> Answer {
+    Ok(json!(core::graphics_presets().into_iter().map(|(name, v)| json!({ "name": name, "settings": v })).collect::<Vec<_>>()))
 }
 
 fn optimise_arm(target: u32) -> Answer {
@@ -837,6 +836,11 @@ fn answer(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         "delete_situation" => delete_situation(arg::<String>(args, "map")?, arg::<String>(args, "file")?),
         "season_date" => season_date(arg::<String>(args, "season")?, arg::<String>(args, "phase")?, arg::<String>(args, "date")?, arg::<String>(args, "map")?, arg::<bool>(args, "keep")?),
         "tutorials" => tutorials(),
+        "ai_vehicles" => to_json(core::ai_lists::vehicles(arg::<Option<bool>>(args, "refresh")?.unwrap_or(false)).map_err(err)?),
+        "ai_vehicle_paints" => to_json(core::ai_lists::paints(&arg::<String>(args, "file")?).map_err(err)?),
+        "ai_lists" => core::ai_lists::view(&arg::<String>(args, "map")?, &arg::<String>(args, "date")?).map_err(err),
+        "ai_lists_save" => core::ai_lists::save(&arg::<String>(args, "map")?, &arg::<String>(args, "date")?, &arg::<Vec<core::ai_lists::GroupJson>>(args, "groups")?, &arg::<Vec<core::ai_lists::RuleJson>>(args, "rules")?).map_err(err),
+        "ai_lists_reset" => core::ai_lists::reset(&arg::<String>(args, "map")?).map(|_| json!({})).map_err(err),
         "addons" => addons::list(),
         "timetable" => timetable::load(arg::<String>(args, "map")?),
         "timetable_save" => timetable::save(arg::<String>(args, "map")?, arg::<Vec<timetable::LineEdit>>(args, "lines")?),
@@ -856,7 +860,7 @@ fn answer(cmd: &str, args: &Value, p: &dyn Platform) -> Answer {
         "settings_patch" => settings_patch(arg::<Value>(args, "patch")?),
         "settings_defaults" => settings_defaults(),
         "option_presets" => option_presets(),
-        "graphics_presets" => graphics_presets(arg::<String>(args, "mode")?),
+        "graphics_presets" => graphics_presets(arg::<String>(args, "mode").unwrap_or_default()),
         "graphics_profiles" => graphics_profiles(),
         "graphics_profile_save" => graphics_profile_save(arg::<String>(args, "name")?, arg::<Value>(args, "settings")?),
         "graphics_profile_delete" => graphics_profile_delete(arg::<String>(args, "name")?),

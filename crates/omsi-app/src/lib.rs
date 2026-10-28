@@ -106,6 +106,7 @@ use omsi_scene::threads;
 use omsi_scene::tiles;
 mod traffic;
 mod view_sync;
+mod watchdog;
 mod ui;
 
 // the game itself, split by what each part does
@@ -766,6 +767,7 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             view_fov: None,
             head_idle_hold: Default::default(),
             ego: false,
+            flashlight: false,
             in_cab: false,
             look: (0.0, 0.0),
             look_smooth: (0.0, 0.0),
@@ -860,6 +862,8 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             update_watch,
             presence,
             plugins: None,
+            vehicle_scripts_of: None,
+            object_scripts: Default::default(),
         },
         net: NetState::default(),
         service_msg: clock_note.map(|m| (m, 10.0)),

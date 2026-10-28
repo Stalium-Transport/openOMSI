@@ -4,8 +4,6 @@ use super::*;
 use std::borrow::Cow;
 
 impl App {
-    /// What the cursor points at, for the HUD. Recomputed every frame: the head turns and
-    /// the bus moves under a cursor that is standing still.
     /// Open the game menu: the simulation pauses (not in a LAN session, which runs on
     /// for the other players).
     pub(crate) fn open_game_menu(&mut self) {
@@ -14,10 +12,25 @@ impl App {
         // steering key let go in the menu went on turning the wheel to full lock once the
         // menu closed (a throttle key went on accelerating, a door button stayed pressed)
         self.release_vehicle_keys();
+        // Mouse releases are consumed by the menu too. Finish any pending physical
+        // drag before letting go. VR stops precisely; desktop keeps its endpoint fallback.
+        let (dx, dy) = std::mem::take(&mut self.input.drag_delta);
+        let vr_active = self.vr_active();
+        if let Some(player) = self.player.as_mut() {
+            if self.input.dragging && (dx != 0.0 || dy != 0.0) {
+                player.drag(dx, dy);
+            }
+            player.release_for_menu(vr_active);
+        }
+        self.input.dragging = false;
+        self.input.buttons_held = (false, false);
+        self.input.both_drag = None;
         if self.net.lan.is_none() {
             self.paused = true;
         }
         self.shell.pause_category = Default::default();
+        self.shell.pause_hidden = true;
+        self.shell.quick_edit = false;
         self.menus.game_menu = Some(0);
         self.menus.menu_top = None;
         self.menus.menu_kbd = true;
@@ -25,6 +38,7 @@ impl App {
     }
 
     pub(crate) fn close_game_menu(&mut self) {
+        self.shell.quick_edit = false;
         self.menus.key_capture = None;
         if self.menus.menu_edit_number {
             if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);}
@@ -70,11 +84,18 @@ impl App {
             self.chooser_key(code);
             return;
         }
+        if self.quick_editor_key(code) { return; }
         let sel = self.menus.game_menu.unwrap_or(0);
         let modified = self.input.keys.iter().any(|key| {
             matches!(*key, KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::AltLeft | KeyCode::AltRight | KeyCode::ShiftLeft | KeyCode::ShiftRight)
         });
         self.menus.menu_top = None;
+        if code == KeyCode::KeyE && !modified && !self.vr_active() && self.shell.pause_category == crate::shell::pause::navigation::Category::Home {
+            self.shell.quick_edit = true;
+            self.shell.quick_focus = 0;
+            self.shell.last_sel = None;
+            return;
+        }
         match code {
             // P changes only the simulation state, even while a menu is open.
             KeyCode::KeyP if !modified => self.toggle_pause(),
@@ -101,7 +122,9 @@ impl App {
         }
         self.close_list();
         self.shell.pause_category = category;
-        self.menus.game_menu = Some(category.indices(&ids).first().copied().unwrap_or(0));
+        self.shell.pause_hidden = false;
+        self.shell.quick_edit = false;
+        self.menus.game_menu = Some(crate::shell::pause::quick_actions::indices(category, &menu, &self.settings.pause_quick_actions).first().copied().unwrap_or(0));
         self.shell.last_sel = None;
     }
 
@@ -120,7 +143,10 @@ impl App {
             return self.menu_step(from, menu.len(), down);
         }
         let ids: Vec<_> = menu.iter().map(|line| line.0).collect();
-        let indices: Vec<_> = self.shell.pause_category.focus_indices(&ids).into_iter().filter(|k| !self.menu_item_off(*k)).collect();
+        let mut indices: Vec<_> = ids.iter().position(|id| *id == "resume").into_iter().collect();
+        indices.extend(crate::shell::pause::quick_actions::indices(self.shell.pause_category, &menu, &self.settings.pause_quick_actions));
+        indices.extend(ids.iter().position(|id| *id == "quit"));
+        indices.retain(|k| !self.menu_item_off(*k));
         crate::shell::pause::navigation::step(&indices, from, down).unwrap_or(from)
     }
 
@@ -211,6 +237,29 @@ impl App {
         }
         let Some(id) = self.game_menu_items().get(k).map(|m| m.0) else { return };
         match id {
+            "load" => {
+                self.close_game_menu();
+                if self.load_quicksave() {
+                    self.finish_session();
+                    crate::platform::exit(event_loop);
+                }
+            }
+            "quit" => {
+                self.menus.game_menu = None;
+                self.finish_session();
+                crate::platform::exit(event_loop);
+            }
+            "plugin" => self.choose_plugin_line(k),
+            other => {
+                self.game_menu_action(other);
+            }
+        }
+    }
+
+    /// What a line of the game menu does, by its id (all but loading, leaving and the
+    /// plugins' lines): also the Alt quick menu's tiles. False when `id` is none of them.
+    pub(crate) fn game_menu_action(&mut self, id: &str) -> bool {
+        match id {
             "resume" => self.close_game_menu(),
             "options" => self.open_list(crate::game_lists::ListKind::Options(0)),
             "controls" => self.open_list(crate::game_lists::ListKind::Controls),
@@ -262,24 +311,10 @@ impl App {
                 self.close_game_menu();
                 self.back_to_bus();
             }
-            "load" => {
-                self.close_game_menu();
-                if self.load_quicksave() {
-                    self.finish_session();
-                    crate::platform::exit(event_loop);
-                }
-            }
-            "quit" => {
-                self.menus.game_menu = None;
-                self.finish_session();
-                crate::platform::exit(event_loop);
-            }
-            "plugin" => self.choose_plugin_line(k),
             // (the rest are the lines of the vehicle and world pages)
-            other => {
-                self.page_action(other);
-            }
+            other => return self.page_action(other),
         }
+        true
     }
 
     /// The actions of the vehicle and world pages (and of what the plugins and the input

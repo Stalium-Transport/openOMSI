@@ -31,7 +31,7 @@ jobs:
       - name: Version
         shell: pwsh
         run: |
-          $base = "0.3.41"  # openOMSI release this branch is built on
+          $base = "0.3.45"  # openOMSI release this branch is built on
           # (numbers, then -stalium: the launcher takes the numbers, the updater leaves a
           # -stalium build alone)
           "OPENOMSI_VERSION=$base-stalium.${{ github.run_number }}" | Out-File -Append $env:GITHUB_ENV
@@ -159,7 +159,7 @@ jobs:
             echo "- **Serveur** : \`Stalium-openOMSI-${version}-server-windows-x64.zip\` (garder \`server.cfg\` et \`bcs.txt\`)."
             echo
             echo "---"
-            echo "openOMSI Stalium Transport : projet indépendant basé sur openOMSI 0.3.41 (AGPL-3.0), protocole réseau 15. Code source : commit ${{ github.sha }} de la branche stalium."
+            echo "openOMSI Stalium Transport : projet indépendant basé sur openOMSI 0.3.45 (AGPL-3.0), protocole réseau 15. Code source : commit ${{ github.sha }} de la branche stalium."
           } > notes.md
           cat notes.md
           gh release create "$tag" out/*.zip -R "${{ github.repository }}" --target "${{ github.sha }}" \

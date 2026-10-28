@@ -7,7 +7,9 @@ use std::sync::Arc;
 mod articulation;
 mod fuel;
 mod model_variables;
+mod rail_power;
 mod scripts_props;
+mod trams;
 
 #[test]
 fn velocity_is_the_driven_wheels_speed() {

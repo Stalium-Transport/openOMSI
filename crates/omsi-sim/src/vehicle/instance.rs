@@ -258,6 +258,7 @@ impl VehicleInstance {
             pitch: 0.0,
             bank: 0.0,
             animators,
+            cab_wheel_rotation: 0,
             mesh_transforms: vec![Mat4::IDENTITY; n],
             mesh_props: vec![MeshProps::default(); n],
             physics,
@@ -297,14 +298,20 @@ impl VehicleInstance {
             props_plan: PropsPlan::default(),
             pax_vars: std::sync::OnceLock::new(),
             engine_ids: std::sync::OnceLock::new(),
+            cable_bus: Vec::new(),
             program_ids: std::sync::OnceLock::new(),
             trolley,
             rail_env: None,
             rail_scripted: false,
             rail_out: None,
             rail_log: 0.0,
+            rail_brake_sys: None,
+            rail_chain: None,
+            rail_broken: false,
+            panto: None,
         };
         instance.declare_trolley_vars();
+        instance.init_pantograph();
         instance
     }
 
@@ -428,14 +435,25 @@ impl VehicleInstance {
                 self.set_var(&var, v);
             }
         }
+        // the cars that run their scripts themselves wear it too
+        for part in &mut self.trailers {
+            if let Some(run) = part.run.as_deref_mut() {
+                run.apply_paint(&part.ty, scheme);
+            }
+        }
     }
 
-    /// The scheme's `[setvar]`s set again, before every frame of the scripts: Omsi.exe
-    /// writes them each frame, not once, and scripts count on it. The Ikarbus cockpit
-    /// turns `v_font` to the Cyrillic font (7) while its switch is on and leaves it there
-    /// when the switch goes off; the scheme's `v_font 0` every frame is what brings the
+    /// The scheme's `[setvar]`s set again, before every frame of the scripts and after it:
+    /// Omsi.exe writes them each frame, not once, and scripts count on it. The Ikarbus
+    /// cockpit turns `v_font` to the Cyrillic font (7) while its switch is on and leaves it
+    /// there when the switch goes off; the scheme's `v_font 0` every frame is what brings the
     /// Latin font back, which the matrix then draws at the next terminus. Set once, the
     /// display stayed Cyrillic for good.
+    /// After the scripts too, so that what is drawn is the scheme's: the Kajosoft Jelcz's
+    /// `cockpit_frame` writes `v_drzwi` from its constant (0, standard doors) every frame,
+    /// and its repaints choose the glazed doors with `[setvar] v_drzwi 1` - which Omsi.exe
+    /// shows. Set before the scripts alone, the script's 0 was drawn: the JGSP Novi Sad
+    /// Vectus had the standard doors' white frames where the original has black (#3183).
     pub(crate) fn apply_scheme_vars_each_frame(&mut self) {
         let Some(Some(i)) = self.host.paint_scheme else { return };
         if let Some(s) = self.ty.paint_schemes.get(i) {

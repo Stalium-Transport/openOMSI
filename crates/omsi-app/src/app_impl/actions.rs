@@ -3,8 +3,9 @@
 use super::*;
 
 impl App {
-    /// Shift+N: the navigator, the navigator with the schedule, off. True in VR (where the
-    /// key is used up).
+    /// Shift+N: the navigator, the navigator with the schedule, off (with a plugin's panel in
+    /// its whole frame, which has no lower part: on, off). True in VR (where the key is used
+    /// up).
     pub(crate) fn cycle_navigator(&mut self) -> bool {
         if self.vr_active() {
             if !self.vr_nav_profile().enabled {
@@ -19,6 +20,10 @@ impl App {
         }
         if let Some(n) = self.menus.navigator.as_mut() {
             match (n.enabled, n.schedule) {
+                (true, _) if n.frame_panel.is_some() => {
+                    n.enabled = false;
+                    n.schedule = false;
+                }
                 (true, false) => n.schedule = true,
                 (true, true) => {
                     n.enabled = false;
@@ -107,6 +112,13 @@ impl App {
         true
     }
 
+    /// The flashlight on or off (Alt+F): it lights what the view looks at, in every view.
+    pub(crate) fn toggle_flashlight(&mut self) {
+        self.cam.flashlight = !self.cam.flashlight;
+        let text = if self.cam.flashlight { "Flashlight on" } else { "Flashlight off" };
+        self.service_msg = Some((text.into(), 1.5));
+    }
+
     /// One of OMSI's global key actions; false when it is not one this game does.
     pub(crate) fn game_action(&mut self, name: &str) -> bool {
         #[cfg(windows)]
@@ -133,6 +145,7 @@ impl App {
                 }
             }
             "screenshot" => self.take_screenshot(),
+            "flashlight" => self.toggle_flashlight(),
             "photo_mode" => self.enter_photo(),
             "quicksave" => self.quick_save(),
             "view_set_ego" => {

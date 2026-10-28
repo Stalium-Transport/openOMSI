@@ -16,6 +16,7 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "nav_ai", "AI vehicles on the map", "Shows/hides the other (AI) vehicles on the Minimap and the city map"),
         switch_row(app, "nav_surface", "Map surface under the roads", "Shows the map's ground, water, woods, houses and paved surfaces on the Minimap and the city map (and the map's package, when it has one)"),
         switch_row(app, "nav_light", "Light map", "The Minimap and the city map in a light look"),
+        switch_row(app, "nav_classic_2d", "Classic 2D navigator", "A lightweight top-down route map with streets and vehicles, without detailed surfaces, buildings or shadows"),
         switch_row(app, "nav_3d", "3D buildings on the map", "The houses stand in 3D with their shadows on the Minimap, and the city map tilts into 3D when zoomed in"),
         switch_row(app, "nav_widget", "Navigator as a widget", "Drag the Minimap anywhere and change its size at its bottom right corner"),
         switch_row(app, "nav_arrows", "Route arrows (as in OMSI 2)", "Shows OMSI 2's route arrows over the road"),
@@ -23,7 +24,7 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "get_up", "Ability to get up (Ctrl+Shift+G)", "Allows you to get out of the car and explore the world"),
         switch_row(app, "coll_objects", "Collisions with objects", "Enables/disables collisions with objects such as buildings, streetlights, etc."),
         switch_row(app, "coll_vehicles", "Collisions with vehicles", "Enables/Disables Collisions with Other Vehicles"),
-        switch_row(app, "realistic_road", "Realistic road physics", "Tyres that slip, grip and roughness by road surface, wind on the bus; off, the buses drive as in OMSI 2"),
+        switch_row(app, "realistic_road", "Realistic road physics", "Tyres that slip, grip and roughness by road surface, wind on the bus; trams and trains: pantograph on the wire, body on its springs; off, vehicles drive as in OMSI 2"),
         switch_row(app, "collision_pedestrians", "Collisions with people", "Enables/disables knocking down people"),
         switch_row(app, "timetable_win", "Timetable window (Insert)", "Displays a list of all stops (only when a tour is active)"),
         switch_row(app, "trip_summary", "Trip summary", "At the end of each trip: its stops with the times planned and driven, to copy or to save"),
@@ -45,13 +46,13 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         .collect();
     let mut graphics: Vec<(String, String)> = vec![
         pick("graphics", "Graphics", later),
-        preset_row(&file, "Quality preset", "Sets most of the graphics options at once"),
+        preset_row(&file, "Quality preset", "Sets the graphics mode and most of the options at once, from Low (Vanilla) to Ultra (Enhanced with everything on)"),
         app.can_optimise().then(|| button("Optimise for my PC", "Start", "Measures while you drive and adjusts the graphics for a smooth frame rate; your settings are saved first", "optimise")),
         omsi_launcher_lib::optimise::backup().is_some().then(|| button("Restore my previous settings", "Restore", "The graphics settings as they were before the last optimisation", "optimise_restore")),
         pick("msaa", "Anti-aliasing", later),
         pick("render_scale", "Render scale", if s.upscaler == "fsr1" { "With FSR 1 it changes at once" } else { later }),
         pick("anisotropy", "Anisotropic", later),
-        // (Enhanced+ traces its shadows, occlusion and reflections: always on there)
+        switch_row(app, "ray_tracing", "Real-Time Ray Tracing", "Enhanced: the sun's shadows, the ambient occlusion and the reflections traced with hardware ray queries, where the card has them; the heaviest option (takes effect when the game starts the next time)").filter(|_| shown("ray_tracing")),
         switch_row(app, "shadows", "Sun shadows", "Enables/Disables shadows").filter(|_| shown("shadows")),
         pick("shadow_size", "Shadow map", later).filter(|_| shown("shadow_size")),
         switch_row(app, "ssao", "Ambient occlusion", later).filter(|_| shown("ssao")),
@@ -60,13 +61,15 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         slider_row(app, "night_brightness", "Night brightness", "Enhanced graphics: how much brighter the night is shown", &|v| if v < 0.01 { "Off".to_string() } else { format!("+{v:.2}") }).filter(|_| shown("night_brightness")),
         slider_row(app, "led_glow", "LED glow", "How strongly the dots of LED destination displays glow", &|v| format!("{}/15", v as i64)).filter(|_| shown("led_glow")),
         slider_row(app, "led_mips", "LED mip strength", "Lower: sharper LED dots that shimmer from a distance; higher: calmer, softer dots", &|v| format!("{v:.2}")).filter(|_| shown("led_mips")),
-        slider_row(app, "reflections", "Reflection maps (paint, chrome, glass)", "Changes show at once; turned up from Off, they come back when the game starts the next time", &|v| if v < 0.005 { "Off".to_string() } else { format!("{:.0}%", v * 100.0) }).filter(|_| shown("reflections")),
+        slider_row(app, "reflections", "Reflective objects reflect", "Changes show at once; turned up from Off, they come back when the game starts the next time", &|v| if v < 0.005 { "Off".to_string() } else { format!("{:.0}%", v * 100.0) }).filter(|_| shown("reflections")),
         switch_row(app, "clouds", "Clouds", later),
         pick("cloud_quality", "Cloud quality", "Enhanced: the volumetric clouds marched in fewer steps - faster, a little grainier").filter(|_| shown("cloud_quality") && app.settings.clouds),
         pick("street_light", "Street light", "Enhanced: shade over a whole street and light bounced between surfaces; Auto turns it off on a small or shared graphics chip (about half a millisecond a frame)").filter(|_| shown("street_light")),
+        pick("light_shadows", "Light has shadows", "Enhanced: which lights cast shadows - the street lamps and the vehicles' headlamps, or every light: spots along their own axis and the lamps that shine every way in cube maps. Cached maps, a few passes a frame").filter(|_| shown("light_shadows")),
+        switch_row(app, "cloud_shadows", "Cloud shadows and light shafts", "Enhanced: the clouds' shadow moving over the land and the sun's shafts through the gaps of a broken sky").filter(|_| shown("cloud_shadows")), switch_row(app, "light_glow", "Glow of lights", "Enhanced: the glare round bright lights and the lamps' halo in the night air").filter(|_| shown("light_glow")),
         pick("rain_quality", "Rain quality", "Lower is faster: the drops on the glass painted less often, less spray and fewer streaks; Low shows OMSI 2's own rain on the glass (from the next bus loaded)"),
         pick("vehicle_smoke", "Vehicle smoke", "Controls the vehicles' smoke particles, not scenery effects or glowing particles."),
-        pick("puddles", "Puddles", "The wet roads' reflections in the rain: Low only near the bus and in fewer rays, much cheaper; Off none (the reflections on paint and glass stay)").filter(|_| app.settings.reflections > 0.0),
+        pick("puddles", if shown("ray_tracing") { "Real-Time Reflections" } else { "Puddles" }, "The wet roads' reflections in the rain: Low only near the bus and in fewer rays, much cheaper; Off none (the reflections on paint and glass stay)").filter(|_| app.settings.reflections > 0.0),
         switch_row(app, "windy_trees", "Windy trees", "The trees' leaves bend and sway in the wind and its gusts; with no wind they stand still"),
     ]
         .into_iter()
@@ -244,6 +247,7 @@ pub(super) fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "ff_invert", "Invert force feedback by default", "For wheels without a saved direction"),
         slider_row(app, "wheel_range", "Wheel rotation", "The steering wheel's own rotation, lock to lock", &|v| format!("{v:.0}°")),
         slider_row(app, "wheel_lock", "Full lock at", "How far the wheel turns for the vehicle's full lock", &|v| if v < 45.0 { "OMSI".to_string() } else { format!("{v:.0}°") }),
+        slider_row(app, "cab_wheel_rotation", "Cab wheel rotation", "How far the steering wheel in the cab turns, lock to lock; 0 = as the bus's own model (Automatic). Set it to your wheel's rotation so both turn alike.", &|v| if v < 90.0 { omsi_ui::tr("Automatic").into_owned() } else { format!("{v:.0}°") }),
         slider_row(app, "pedal_t", "Throttle pedal strength", "Adjust how strongly pedal input affects the throttle", &|v| format!("x{v}")),
         slider_row(app, "pedal_b", "Brake pedal strength", "Adjust how strongly pedal input affects the brake", &|v| format!("x{v}")),
         switch_row(app, "blinker_cancel", "Indicators cancel themselves", "The bus's script turns the indicator off after a turn; off: it stays on until you turn it off"),
@@ -499,6 +503,7 @@ fn shown_in_mode(mode: &str, key: &str) -> bool {
         "night_brightness" | "led_glow" | "led_mips" | "mirror_quality" | "cloud_quality" => matches!(mode, "enhanced" | "enhanced_plus"),
         // (the ray-traced picture has its own occlusion)
         "street_light" => mode == "enhanced",
+        "ray_tracing" | "light_shadows" | "cloud_shadows" | "light_glow" => matches!(mode, "enhanced" | "enhanced_plus"),
         _ => true,
     }
 }
@@ -539,12 +544,12 @@ mod tests {
 
     #[test]
     fn graphics_rows_follow_the_sessions_mode() {
-        let keys = ["shadows", "shadow_size", "ssao", "shadow_casters", "detail_textures", "night_brightness", "led_glow", "led_mips", "reflections", "mirror_quality", "cloud_quality", "street_light", "msaa"];
+        let keys = ["shadows", "shadow_size", "ssao", "shadow_casters", "detail_textures", "night_brightness", "led_glow", "led_mips", "reflections", "mirror_quality", "cloud_quality", "street_light", "msaa", "ray_tracing", "light_shadows", "cloud_shadows", "light_glow"];
         let shown = |mode: &str| keys.iter().filter(|k| shown_in_mode(mode, k)).copied().collect::<Vec<_>>();
         assert_eq!(shown("vanilla"), ["reflections", "msaa"]);
         assert_eq!(shown("vanilla_plus"), ["shadows", "shadow_size", "ssao", "shadow_casters", "detail_textures", "reflections", "msaa"]);
         assert_eq!(shown("enhanced"), keys);
-        assert_eq!(shown("Enhanced+"), ["shadow_size", "shadow_casters", "detail_textures", "night_brightness", "led_glow", "led_mips", "mirror_quality", "cloud_quality", "msaa"]);
+        assert_eq!(shown("Enhanced+"), ["shadow_size", "shadow_casters", "detail_textures", "night_brightness", "led_glow", "led_mips", "mirror_quality", "cloud_quality", "msaa", "ray_tracing", "light_shadows", "cloud_shadows", "light_glow"]);
     }
     #[test]
     fn the_running_sessions_mode_decides_what_it_forces() {
