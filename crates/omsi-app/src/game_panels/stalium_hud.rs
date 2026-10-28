@@ -2,10 +2,11 @@
 //! copied into the game's folder): a bar along the top of the screen, the driver's tablet and
 //! the road sheet.
 //!
-//! - The bar (always, while the setting `stalium_hud` is on and the player drives): the
-//!   driver, the map, the bus, the time, the speed, the kilometres of the sheet, the odometer,
-//!   the outside and cabin temperatures, the tank, the passengers aboard, the line and its
-//!   terminus, the next stop and the delay. It takes the place of the game's information bar.
+//! - The bar (always, while the setting `stalium_hud` is on and the player drives), a block
+//!   at the top in two lines: the line and its terminus, the time, the speed (red over the
+//!   road's limit) and the limit, the next stop and how far it is, the delay in words; under
+//!   them the driver, the bus, the sheet so far, the passengers and the tank with their gauges.
+//!   It takes the place of the game's information bar.
 //! - The tablet (`stalium_tablet`, F11 by default): the line, the next stop, the delay, the
 //!   passengers and the takings.
 //! - The road sheet (`stalium_sheet`, F10, to read): the trip since it began (the driver, the
@@ -33,11 +34,13 @@ pub(crate) const SITE_API: &str = "https://omsi.stalium-transport.fr/api/omsi_tr
 const ORANGE: Rgba = Rgba([0xF4, 0x7F, 0x30, 255]);
 const GREY: Rgba = Rgba([0x7F, 0x8C, 0x8D, 255]);
 const LIGHT: Rgba = Rgba([0xBD, 0xC3, 0xC7, 255]);
-const BLUE: Rgba = Rgba([0x34, 0x98, 0xDB, 255]);
+const BLUE: Rgba = Rgba([0x3B, 0x8B, 0xEB, 255]);
 const YELLOW: Rgba = Rgba([0xF1, 0xC4, 0x0F, 255]);
 const GREEN: Rgba = Rgba([0x2E, 0xCC, 0x71, 255]);
 const RED: Rgba = Rgba([0xE7, 0x4C, 0x3C, 255]);
 const WHITE: Rgba = Rgba([255, 255, 255, 255]);
+/// The line's badge and the speed limit's sign.
+const LINE_RED: Rgba = Rgba([0xD9, 0x34, 0x2B, 255]);
 
 /// The HUD's state in the game's panels.
 #[derive(Default)]
@@ -76,6 +79,8 @@ pub(crate) struct Snapshot {
     /// The game time (s since midnight).
     pub time: f64,
     pub speed_kmh: f32,
+    /// The road's speed limit (km/h), as the navigator knows it.
+    pub speed_limit: Option<f32>,
     /// Km of the sheet so far.
     pub km: f64,
     pub odometer_km: Option<f64>,
@@ -90,6 +95,8 @@ pub(crate) struct Snapshot {
     pub trip: Option<usize>,
     pub terminus: Option<String>,
     pub next_stop: Option<String>,
+    /// Metres to the next stop: by the road (the navigator's), else in a straight line.
+    pub next_stop_m: Option<f64>,
     /// Seconds late (negative: early), with a duty.
     pub delay: Option<f64>,
     /// Tickets sold and takings, passengers carried, since the sheet began.
@@ -330,6 +337,7 @@ impl crate::App {
             number: v.number().trim().to_string(),
             time: self.clock.time,
             speed_kmh: v.physics.velocity_kmh().abs(),
+            speed_limit: self.menus.navigator.as_ref().filter(|n| n.enabled).and_then(|n| n.speed_limit).filter(|l| l.is_finite() && *l > 0.0),
             km: ((career.metres - start.metres) / 1000.0).max(0.0),
             odometer_km: v.var("kmcounter_km").filter(|x| x.is_finite()).map(|km| km as f64 + v.var("kmcounter_m").unwrap_or(0.0) as f64 / 1000.0),
             temperatures: crate::app_events::vehicle_temperatures(p),
@@ -348,7 +356,12 @@ impl crate::App {
                 s.tour = Some(d.tour.trim().to_string()).filter(|t| !t.is_empty());
                 s.trip = Some(d.trip_index);
                 s.terminus = Some(trip.terminus.trim().to_string()).filter(|t| !t.is_empty());
-                s.next_stop = trip.stops.get(d.next_stop).map(|st| st.name.trim().to_string()).filter(|n| !n.is_empty());
+                if let Some(st) = trip.stops.get(d.next_stop) {
+                    s.next_stop = Some(st.name.trim().to_string()).filter(|n| !n.is_empty());
+                    let by_road = self.menus.navigator.as_ref().filter(|n| n.enabled).and_then(|n| n.next_stop_distance_for(st.object_id));
+                    let straight = st.position.map(|at| (at.x - v.position.x).hypot(at.y - v.position.y));
+                    s.next_stop_m = by_road.or(straight);
+                }
                 s.delay = Some(v.host.tt_delay as f64);
             }
         }
@@ -437,70 +450,104 @@ fn badge(s: &str, c: Rgba) -> Element {
     colored(el(None, Kind::Badge { text: s.to_string(), text_color: Some(WHITE), weight: Weight::Medium }), c)
 }
 
-fn route_text(s: &Snapshot) -> String {
-    match (s.line.as_deref(), s.terminus.as_deref()) {
-        (Some(l), Some(d)) => format!("{} > {}", short(l, 8), short(d, 18)),
-        (Some(l), None) => format!("Ligne {}", short(l, 8)),
-        (None, Some(d)) => format!("Dest : {}", short(d, 18)),
-        (None, None) => "Sans service".into(),
+/// `850 m`, `1,3 km`: a distance as the bar says it (tens of metres under a kilometre).
+pub(crate) fn distance_text(m: f64) -> String {
+    if m < 995.0 {
+        format!("{:.0} m", ((m.max(0.0) / 10.0).round() * 10.0))
+    } else {
+        format!("{:.1} km", m / 1000.0).replace('.', ",")
     }
 }
 
-/// The bar along the top: `wide` (a logical width of 1650 or more) shows the vehicle's details
-/// and the next stop too.
-pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
-    let wide = width >= 1650.0;
-    let sep = divider;
-    let bus = if s.number.is_empty() { short(&s.bus, 18) } else { format!("{} #{}", short(&s.bus, 14), s.number) };
-    let mut row = vec![
-        colored(el(None, Kind::Text { text: "STALIUM".into(), size: 13.0, weight: Weight::Bold, align: Align::Left, wrap: false }), ORANGE),
-        t(VERSION, GREY),
-        t(&short(&s.driver, 16), WHITE),
-        sep(),
-        icon("map", BLUE),
-        t(&short(&s.map, 16), BLUE),
-        sep(),
-        icon("directions_bus", ORANGE),
-        t(&bus, YELLOW),
-        sep(),
-        t(&clock(s.time), WHITE),
-        sep(),
-        t(&format!("{:.0} km/h", s.speed_kmh), WHITE),
-        sep(),
-        t(&format!("{:.1} km", s.km), GREEN),
-    ];
-    if wide {
-        if let Some(odo) = s.odometer_km {
-            row.extend([sep(), t(&format!("Odo {} km", odo.floor() as i64), LIGHT)]);
-        }
-        row.extend([sep(), t(&format!("EXT {:.0}° / INT {:.0}°", s.temperatures.0, s.temperatures.1), LIGHT)]);
-        if let Some(f) = s.fuel {
-            row.extend([sep(), t(&format!("Réservoir {:.0} %", f * 100.0), LIGHT)]);
-        }
-        let pax = match s.capacity {
-            Some(c) => format!("{}/{} pax", s.aboard, c),
-            None => format!("{} pax", s.aboard),
-        };
-        row.extend([sep(), t(&pax, LIGHT)]);
+/// `7:06 d'avance`, `2:10 de retard`, `À l'heure` (within a minute), and its colour.
+pub(crate) fn delay_words(delay: f64) -> (String, Rgba) {
+    let s = delay.abs().round() as i64;
+    let mmss = format!("{}:{:02}", s / 60, s % 60);
+    if delay > 60.0 {
+        (format!("{mmss} de retard"), RED)
+    } else if delay < -60.0 {
+        (format!("{mmss} d'avance"), BLUE)
+    } else {
+        ("À l'heure".into(), GREEN)
     }
-    let route = route_text(s);
-    let route_color = if route == "Sans service" { GREY } else { BLUE };
-    row.extend([sep(), t(&route, route_color)]);
-    if wide {
-        if let Some(n) = s.next_stop.as_deref() {
-            row.extend([sep(), t(&format!("Prochain : {}", short(n, 18)), Rgba([0xE0, 0xE0, 0xE0, 255]))]);
+}
+
+fn text(s: &str, size: f32, weight: Weight, c: Rgba) -> Element {
+    colored(el(None, Kind::Text { text: s.to_string(), size, weight, align: Align::Left, wrap: false }), c)
+}
+
+fn gauge(value: f32, c: Rgba) -> Element {
+    colored(el(None, Kind::Bar { value: value.clamp(0.0, 1.0), height: 6.0, background: Some(Rgba([0x2C, 0x31, 0x3B, 255])), segments: Vec::new() }), c)
+}
+
+/// The bar along the top (model A): the line and its terminus, the time, the speed and the
+/// road's limit, the next stop and how far it is, the delay; under them the driver, the bus,
+/// the sheet so far, the passengers and the tank. `width`: the screen's logical width.
+pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
+    let wide = width >= 1280.0;
+    let vsep = || colored(divider(), Rgba([0x2C, 0x31, 0x3B, 255]));
+    let mut top = vec![colored(el(None, Kind::Badge { text: "S".into(), text_color: Some(Rgba([0x0F, 0x11, 0x16, 255])), weight: Weight::Bold }), ORANGE)];
+    match (s.line.as_deref(), s.terminus.as_deref()) {
+        (Some(l), d) => {
+            top.push(colored(el(None, Kind::Badge { text: short(l, 6), text_color: Some(WHITE), weight: Weight::Bold }), LINE_RED));
+            if let Some(d) = d {
+                top.push(text(&short(d, 22), 15.0, Weight::Medium, WHITE));
+            }
         }
+        (None, Some(d)) => top.push(text(&short(d, 22), 15.0, Weight::Medium, WHITE)),
+        (None, None) => top.push(text("Sans service", 15.0, Weight::Medium, GREY)),
+    }
+    top.extend([vsep(), text(&clock(s.time)[..5], 16.0, Weight::Medium, WHITE), vsep()]);
+    // the speed, red over the road's limit
+    let over = s.speed_limit.is_some_and(|l| s.speed_kmh > l + 3.0);
+    top.push(text(&format!("{:.0}", s.speed_kmh), 22.0, Weight::Bold, if over { RED } else { WHITE }));
+    top.push(text("km/h", 12.0, Weight::Regular, LIGHT));
+    if let Some(l) = s.speed_limit {
+        top.push(colored(el(None, Kind::Badge { text: format!("{l:.0}"), text_color: Some(WHITE), weight: Weight::Bold }), LINE_RED));
+    }
+    if let Some(n) = s.next_stop.as_deref() {
+        top.push(vsep());
+        top.push(icon("location_on", BLUE));
+        top.push(text("Prochain arrêt", 12.0, Weight::Regular, LIGHT));
+        top.push(Element { grow: true, ..text(&short(n, 26), 15.0, Weight::Medium, WHITE) });
+        if let Some(m) = s.next_stop_m {
+            top.push(text(&format!("· {}", distance_text(m)), 14.0, Weight::Medium, WHITE));
+        }
+    } else {
+        top.push(Element { grow: true, ..el(None, Kind::Space { size: 0.0 }) });
     }
     if let Some(d) = s.delay {
-        let (text, c) = delay_text(d);
-        row.extend([sep(), badge(&text, c)]);
+        let (words, c) = delay_words(d);
+        top.push(badge(&words, c));
     }
-    row.extend([sep(), small(&format!("{} Feuille · {} Tablette · {} HUD", s.keys[1], s.keys[0], s.keys[2]))]);
-    let mut p = card(Anchor::Top, 0.0, 8.0, (width - 40.0).clamp(600.0, 1880.0), 238, vec![row_of(row)]);
-    p.padding = 6.0;
-    p.radius = 8.0;
-    p.background = Some(Rgba([0x0F, 0x11, 0x16, 238]));
+
+    let bus = if s.number.is_empty() { short(&s.bus, 22) } else { format!("{} #{}", short(&s.bus, 18), s.number) };
+    let mut under = vec![text(&short(&s.driver, 18), 12.0, Weight::Medium, WHITE), t_small(&bus), t_small(&format!("Feuille {} · {} voyageur{}", distance_text(s.km * 1000.0), s.carried, if s.carried > 1 { "s" } else { "" }))];
+    if wide {
+        let pax = match s.capacity {
+            Some(c) => format!("Passagers {}/{}", s.aboard, c),
+            None => format!("Passagers {}", s.aboard),
+        };
+        under.push(t_small(&pax));
+        if let Some(c) = s.capacity.filter(|c| *c > 0) {
+            under.push(gauge(s.aboard as f32 / c as f32, BLUE));
+        }
+        if let Some(f) = s.fuel {
+            under.push(t_small(&format!("Carburant {:.0} %", f * 100.0)));
+            under.push(gauge(f, if f < 0.15 { RED } else { GREEN }));
+        }
+    }
+
+    let mut p = card(Anchor::Top, 0.0, 12.0, (width - 40.0).clamp(560.0, 880.0), 235, vec![row_of(top), colored(divider(), Rgba([0x23, 0x28, 0x32, 255])), row_of(under)]);
+    p.padding = 10.0;
+    p.gap = 7.0;
+    p.radius = 14.0;
+    p.background = Some(Rgba([0x0F, 0x11, 0x16, 235]));
     p
+}
+
+fn t_small(s: &str) -> Element {
+    text(s, 12.0, Weight::Regular, LIGHT)
 }
 
 fn row_of(children: Vec<Element>) -> Element {
@@ -610,6 +657,7 @@ mod tests {
             number: "1351".into(),
             time: 18.0 * 3600.0 + 40.0 * 60.0 + 5.0,
             speed_kmh: 32.4,
+            speed_limit: Some(50.0),
             km: 12.34,
             odometer_km: Some(1_067_042.3),
             temperatures: (8.0, 21.0),
@@ -621,6 +669,7 @@ mod tests {
             trip: Some(13),
             terminus: Some("P+R Ronoe".into()),
             next_stop: Some("Thiers - Victor Hugo".into()),
+            next_stop_m: Some(1290.0),
             delay: Some(75.0),
             tickets: (4, 7.2),
             carried: 31,
@@ -637,6 +686,16 @@ mod tests {
         assert_eq!(delay_text(20.0).1, GREEN);
         assert_eq!(short("Thiers - Victor Hugo", 12), "Thiers - V..");
         assert_eq!(short("Docks", 12), "Docks");
+    }
+
+    #[test]
+    fn distances_and_delays_read_in_words() {
+        assert_eq!(distance_text(8.0), "10 m");
+        assert_eq!(distance_text(846.0), "850 m");
+        assert_eq!(distance_text(1290.0), "1,3 km");
+        assert_eq!(delay_words(-426.0), ("7:06 d'avance".to_string(), BLUE));
+        assert_eq!(delay_words(130.0), ("2:10 de retard".to_string(), RED));
+        assert_eq!(delay_words(30.0).0, "À l'heure");
     }
 
     #[test]
@@ -717,9 +776,12 @@ mod tests {
         assert!(ids(&tablet(&s)).contains(&"open_sheet".to_string()));
         assert_eq!(ids(&sheet(&s)), vec!["close_sheet".to_string()], "the sheet goes by itself: no button to send it");
         assert!(ids(&bar(&s, 1920.0)).is_empty(), "the bar takes no clicks");
-        // a narrow screen leaves the vehicle's details out
+        // the next stop and how far; a narrow screen leaves the gauges out
         let text = |p: &Panel| format!("{:?}", p.children);
-        assert!(text(&bar(&s, 1920.0)).contains("Odo"));
-        assert!(!text(&bar(&s, 1280.0)).contains("Odo"));
+        assert!(text(&bar(&s, 1920.0)).contains("1,3 km"));
+        assert!(text(&bar(&s, 1920.0)).contains("1:15 de retard"));
+        assert!(text(&bar(&s, 1920.0)).contains("Carburant"));
+        assert!(!text(&bar(&s, 1100.0)).contains("Carburant"));
+        assert!(!text(&bar(&s, 1920.0)).contains("F10"), "the keys are on the tablet, not the bar");
     }
 }

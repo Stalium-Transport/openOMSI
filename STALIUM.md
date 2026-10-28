@@ -26,9 +26,9 @@ versions 0.3.39 et plus anciennes). Serveur et joueurs : de préférence la mêm
   `stalium-…` de github.com/Stalium-Transport/openOMSI, comme openOMSI le fait pour les siennes, et jamais la version
   officielle (elle ne rejoindrait plus les serveurs Stalium).
 - **HUD Stalium Transport dans le jeu** (il était le plugin Lua `fr.stalium.route` d'AlexLiveFr,
-  à copier dans le dossier du jeu) : un bandeau en haut de l'écran à la place de la barre
-  d'informations (chauffeur, carte, bus, heure, vitesse, km, odomètre, températures, réservoir,
-  passagers, ligne, prochain arrêt, retard), la tablette conducteur (`stalium_tablet`, F11) et la
+  à copier dans le dossier du jeu) : un bandeau compact en haut de l'écran à la place de la barre
+  d'informations (ligne et terminus, heure, vitesse et limitation, prochain arrêt et sa distance,
+  avance ou retard ; dessous chauffeur, bus, feuille en cours, passagers et carburant), la tablette conducteur (`stalium_tablet`, F11) et la
   feuille de route (`stalium_sheet`, F10, à consulter), envoyée - seulement sur un serveur Stalium
   (serveur de jeu sur la machine de `STALIUM_ANNUAIRE`), au nom du pseudo multijoueur - toute seule à la fin de chaque
   course du service (le service passe à la course suivante ou se termine) directement au site
