@@ -39,6 +39,8 @@ const YELLOW: Rgba = Rgba([0xF1, 0xC4, 0x0F, 255]);
 const GREEN: Rgba = Rgba([0x2E, 0xCC, 0x71, 255]);
 const RED: Rgba = Rgba([0xE7, 0x4C, 0x3C, 255]);
 const WHITE: Rgba = Rgba([255, 255, 255, 255]);
+/// The logo's blue (its S when the picture cannot be drawn).
+const LOGO_BLUE: Rgba = Rgba([0x1E, 0x88, 0xF5, 255]);
 /// The line's badge and the speed limit's sign.
 const LINE_RED: Rgba = Rgba([0xD9, 0x34, 0x2B, 255]);
 
@@ -486,7 +488,10 @@ fn gauge(value: f32, c: Rgba) -> Element {
 pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
     let wide = width >= 1280.0;
     let vsep = || colored(divider(), Rgba([0x2C, 0x31, 0x3B, 255]));
-    let mut top = vec![colored(el(None, Kind::Badge { text: "S".into(), text_color: Some(Rgba([0x0F, 0x11, 0x16, 255])), weight: Weight::Bold }), ORANGE)];
+    let mut top = vec![match logo_path() {
+        Some(path) => el(None, Kind::Image { path: Some(path), width: 24.0, height: 24.0 }),
+        None => colored(el(None, Kind::Badge { text: "S".into(), text_color: Some(WHITE), weight: Weight::Bold }), LOGO_BLUE),
+    }];
     match (s.line.as_deref(), s.terminus.as_deref()) {
         (Some(l), d) => {
             top.push(colored(el(None, Kind::Badge { text: short(l, 6), text_color: Some(WHITE), weight: Weight::Bold }), LINE_RED));
@@ -544,6 +549,25 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
     p.radius = 14.0;
     p.background = Some(Rgba([0x0F, 0x11, 0x16, 235]));
     p
+}
+
+/// Stalium Transport's logo, in the program: written once into `~/.openomsi/stalium/` for
+/// the panels to draw (they draw pictures from files); None when it cannot be (an S then).
+static LOGO: &[u8] = include_bytes!("../../../../assets/stalium/logo.png");
+
+fn logo_path() -> Option<std::path::PathBuf> {
+    static PATH: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+        let dir = std::path::PathBuf::from(home).join(".openomsi").join("stalium");
+        let path = dir.join("logo.png");
+        if std::fs::read(&path).ok().as_deref() != Some(LOGO) {
+            std::fs::create_dir_all(&dir).ok()?;
+            std::fs::write(&path, LOGO).ok()?;
+        }
+        Some(path)
+    })
+    .clone()
 }
 
 fn t_small(s: &str) -> Element {
