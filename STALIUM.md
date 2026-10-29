@@ -35,6 +35,8 @@ versions 0.3.39 et plus anciennes). Serveur et joueurs : de préférence la mêm
   (`POST https://omsi.stalium-transport.fr/api/omsi_trips.php`, le JSON `SUBMIT_DRIVER_SHEET` du
   plugin avec `saved_at`, comme Stalium Companion le faisait ; réponse `success` / `earned` affichée
   en jeu) et au bot en UDP (127.0.0.1:47800), plus à Companion (le site l'aurait reçue deux fois) ;
+  Le site reconnaît le chauffeur par sa clé openOMSI (champ `key`, copiée sur son profil puis
+  « Coller ma clé » dans la tablette, gardée dans `~/.openomsi/stalium/cle.txt`) : sans clé, rien ne part.
   `stalium_hud` (F7) le masque. Touches dans keyboard.cfg (F8, F9, F6 si les premières sont
   prises), réglage `stalium_hud` (Options → Gameplay). Les contrôles de titres, aléas, SOS et
   la télémétrie du plugin n'en font pas partie.

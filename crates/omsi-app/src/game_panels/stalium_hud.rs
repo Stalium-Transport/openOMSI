@@ -169,6 +169,59 @@ pub(crate) fn with_saved_at(json: &str, saved_at: &str) -> String {
     format!("{body},\"saved_at\":\"{saved_at}\"}}")
 }
 
+/// The sheet for the website with the player's key (`key`): the website knows the driver
+/// by it, not by the name the sheet says.
+pub(crate) fn with_key(json: &str, key: &str) -> String {
+    let body = json.trim_end().trim_end_matches('}');
+    format!("{body},\"key\":\"{key}\"}}")
+}
+
+/// A key of the website as the player copied it, tidied (`STAL-ABCD-EFGH-JKLM`); None when
+/// it cannot be one (8 to 64 letters, figures and dashes).
+pub(crate) fn tidy_key(text: &str) -> Option<String> {
+    let k = text.trim().to_ascii_uppercase();
+    (8..=64).contains(&k.len()).then_some(()).filter(|_| k.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')).map(|_| k)
+}
+
+/// Where the player's key is kept on this computer (`~/.openomsi/stalium/cle.txt`).
+fn key_file() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+    Some(std::path::PathBuf::from(home).join(".openomsi").join("stalium").join("cle.txt"))
+}
+
+static KEY: std::sync::Mutex<Option<Option<String>>> = std::sync::Mutex::new(None);
+
+/// The player's key of the Stalium website (their account linked), read once.
+pub(crate) fn stalium_key() -> Option<String> {
+    let mut k = KEY.lock().unwrap_or_else(|e| e.into_inner());
+    k.get_or_insert_with(|| key_file().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| tidy_key(&t))).clone()
+}
+
+/// The key kept (Some) or forgotten (None); false when it could not be written.
+fn set_key(key: Option<&str>) -> bool {
+    let Some(f) = key_file() else { return false };
+    let done = match key {
+        Some(k) => f.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()) && std::fs::write(&f, k).is_ok(),
+        None => !f.exists() || std::fs::remove_file(&f).is_ok(),
+    };
+    if done {
+        *KEY.lock().unwrap_or_else(|e| e.into_inner()) = Some(key.map(str::to_string));
+    }
+    done
+}
+
+/// The text on the clipboard, where there is one to read.
+fn from_clipboard() -> Option<String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        arboard::Clipboard::new().ok()?.get_text().ok()
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        None
+    }
+}
+
 fn saved_at_now() -> String {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() % 60).unwrap_or(0);
     match omsi_launcher_lib::local_now() {
@@ -215,17 +268,24 @@ static ANSWERS: std::sync::Mutex<Vec<SiteAnswer>> = std::sync::Mutex::new(Vec::n
 /// Send the sheet to the website on a thread of its own (the game goes on; its answer is said
 /// when it comes) and to the bot on this computer (UDP: nothing waits, nothing is said when it
 /// does not run).
-fn send_sheet(json: &str) {
+fn send_sheet(json: &str, key: &str) {
     if let Ok(socket) = std::net::UdpSocket::bind(("127.0.0.1", 0)) {
         let _ = socket.send_to(json.as_bytes(), ("127.0.0.1", BOT_PORT));
     }
-    let body = with_saved_at(json, &saved_at_now());
+    let body = with_key(&with_saved_at(json, &saved_at_now()), key);
     let spawned = std::thread::Builder::new().name("stalium-sheet".into()).spawn(move || {
         let agent = ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(6)).timeout(std::time::Duration::from_secs(12)).build();
         let answer = match agent.post(SITE_API).set("Content-Type", "application/json").set("User-Agent", "openOMSI-Stalium").send_string(&body) {
             Ok(r) => read_answer(&r.into_string().unwrap_or_default()),
             // (the site's own refusal, with its words)
-            Err(ureq::Error::Status(code, r)) => SiteAnswer::Refused(format!("HTTP {code} {}", short(&r.into_string().unwrap_or_default(), 60))),
+            Err(ureq::Error::Status(code, r)) => {
+                // (its message when it gave one: "Compte non relié...")
+                let text = r.into_string().unwrap_or_default();
+                match read_answer(&text) {
+                    SiteAnswer::Refused(why) if serde_json::from_str::<serde_json::Value>(&text).is_ok_and(|v| v["message"].is_string()) => SiteAnswer::Refused(why),
+                    _ => SiteAnswer::Refused(format!("HTTP {code} {}", short(&text, 60))),
+                }
+            }
             Err(e) => SiteAnswer::Unreachable(e.to_string()),
         };
         log::info!("Stalium: road sheet to {SITE_API}: {answer:?}");
@@ -424,9 +484,16 @@ impl crate::App {
             self.service_msg = Some(("Course terminée : hors serveur Stalium, la feuille de route n'est pas envoyée".into(), 5.0));
             return;
         }
+        let Some(key) = stalium_key() else {
+            // (no account linked: the website would not know whose sheet it is)
+            log::info!("Stalium: trip {:?} of line {:?} ended with no Stalium account linked: no road sheet sent", s.trip, s.line);
+            self.menus.game_panels.stalium.start = None;
+            self.service_msg = Some(("Feuille de route non envoyée : compte Stalium non relié. Copiez votre clé sur stalium-transport.fr, puis tablette (F11) > Coller ma clé".into(), 12.0));
+            return;
+        };
         let json = sheet_json(s);
         log::info!("Stalium: trip {:?} of line {:?} ended: road sheet {json}", s.trip, s.line);
-        send_sheet(&json);
+        send_sheet(&json, &key);
         self.menus.game_panels.stalium.start = None;
         self.service_msg = Some((format!("Course terminée : feuille de route {} envoyée au site Stalium ({:.1} km, {} voyageur(s))...", s.line.as_deref().unwrap_or("HLP"), s.km, s.carried), 6.0));
     }
@@ -649,6 +716,20 @@ pub(crate) fn tablet(s: &Snapshot) -> Panel {
         row_of(vec![Element { grow: true, ..t(&pax, WHITE) }, badge(&format!("Caisse : {:.2} €", s.tickets.1), Rgba([0x10, 0xB9, 0x81, 255]))]),
         divider(),
         row_of(vec![button("open_sheet", &format!("Feuille de route ({})", s.keys[1]), Some("description"))]),
+        divider(),
+        match stalium_key() {
+            Some(k) => row_of(vec![
+                icon("verified", GREEN),
+                Element { grow: true, ..t(&format!("Compte Stalium relié (clé ...{})", &k[k.len().saturating_sub(4)..]), GREEN) },
+                button("forget_key", "Retirer", None),
+            ]),
+            None => row_of(vec![
+                icon("link_off", RED),
+                Element { grow: true, ..t("Compte Stalium non relié : les feuilles ne partent pas", RED) },
+                button("paste_key", "Coller ma clé", Some("content_paste")),
+            ]),
+        },
+        small("Votre clé openOMSI est sur stalium-transport.fr (Mon profil) : copiez-la, puis Coller ma clé."),
         small(&format!("{} : feuille de route • {} : tablette • {} : masquer le HUD • Échap : fermer", s.keys[1], s.keys[0], s.keys[2])),
     ];
     let mut p = card(Anchor::TopLeft, 16.0, 64.0, 380.0, 250, children);
@@ -713,6 +794,18 @@ pub(crate) fn click(app: &mut crate::App, panel: &str, element: &str) {
         ("st_tablet", "close_tablet") => app.menus.game_panels.stalium.tablet = false,
         ("st_tablet", "open_sheet") => app.menus.game_panels.stalium.sheet = true,
         ("st_sheet", "close_sheet") => app.menus.game_panels.stalium.sheet = false,
+        ("st_tablet", "paste_key") => {
+            app.service_msg = Some(match from_clipboard().as_deref().and_then(tidy_key) {
+                Some(k) if set_key(Some(&k)) => ("Compte Stalium relié : vos feuilles de route partiront à votre nom".into(), 6.0),
+                Some(_) => ("La clé n'a pas pu être enregistrée sur ce PC (voir game.log)".into(), 8.0),
+                None => ("Pas de clé Stalium dans le presse-papiers : copiez-la sur stalium-transport.fr (Mon profil)".into(), 8.0),
+            });
+        }
+        ("st_tablet", "forget_key") => {
+            if set_key(None) {
+                app.service_msg = Some(("Compte Stalium retiré de ce PC".into(), 4.0));
+            }
+        }
         _ => {}
     }
 }
@@ -797,6 +890,19 @@ mod tests {
             let drawn: Vec<String> = laid.items.iter().filter_map(|i| if let omsi_plugin_ui::Item::Text { text, .. } = i { Some(text.clone()) } else { None }).collect();
             assert!(wanted(&q).iter().any(|t| !drawn.contains(t)), "the bar {} wide has room to spare", p.width);
         }
+    }
+
+    /// The website knows the driver by their key; a key is tidied as copied, nonsense refused.
+    #[test]
+    fn the_sheet_carries_the_players_key() {
+        let j = with_key(&with_saved_at(&sheet_json(&snap()), "2026-10-29 21:40:00"), "STAL-ABCD-EFGH-JKLM");
+        let v: serde_json::Value = serde_json::from_str(&j).expect("valid JSON");
+        assert_eq!(v["key"], "STAL-ABCD-EFGH-JKLM");
+        assert_eq!(v["saved_at"], "2026-10-29 21:40:00");
+        assert_eq!(tidy_key("  stal-abcd-efgh-jklm\r\n"), Some("STAL-ABCD-EFGH-JKLM".into()));
+        assert_eq!(tidy_key("bonjour à tous"), None);
+        assert_eq!(tidy_key("abc"), None);
+        assert_eq!(tidy_key("x\"}"), None);
     }
 
     #[test]
