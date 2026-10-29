@@ -516,7 +516,7 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
         top.push(text("Prochain arrêt", 12.0, Weight::Regular, LIGHT));
         top.push(Element { grow: true, ..text(&short(n, 26), 15.0, Weight::Medium, WHITE) });
         if let Some(m) = s.next_stop_m {
-            top.push(text(&format!("· {}", distance_text(m)), 14.0, Weight::Medium, WHITE));
+            top.push(text(&format!("à {}", distance_text(m)), 14.0, Weight::Medium, LIGHT));
         }
     }
     if let Some(d) = s.delay {
@@ -525,8 +525,13 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
     }
 
     let bus = if s.number.is_empty() { short(&s.bus, 30) } else { format!("{} #{}", short(&s.bus, 28), s.number) };
-    let mut under = vec![text(&short(&s.driver, 18), 12.0, Weight::Medium, WHITE), t_small(&bus), t_small(&format!("Feuille {} · {} voyageur{}", distance_text(s.km * 1000.0), s.carried, if s.carried > 1 { "s" } else { "" }))];
-    if wide {
+    let mut under = vec![text(&short(&s.driver, 18), 12.0, Weight::Medium, WHITE), t_small(&bus)];
+    // (out of service: no sheet, no passengers to carry - the bar keeps to the bus)
+    let in_service = s.trip.is_some();
+    if in_service {
+        under.push(t_small(&format!("Feuille {} • {} voyageur{}", distance_text(s.km * 1000.0), s.carried, if s.carried > 1 { "s" } else { "" })));
+    }
+    if wide && in_service {
         let pax = match s.capacity {
             Some(c) => format!("Passagers {}/{}", s.aboard, c),
             None => format!("Passagers {}", s.aboard),
@@ -535,6 +540,8 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
         if let Some(c) = s.capacity.filter(|c| *c > 0) {
             under.push(gauge(s.aboard as f32 / c as f32, BLUE));
         }
+    }
+    if wide {
         if let Some(f) = s.fuel {
             under.push(t_small(&format!("Carburant {:.0} %", f * 100.0)));
             under.push(gauge(f, if f < 0.15 { RED } else { GREEN }));
@@ -632,7 +639,7 @@ pub(crate) fn tablet(s: &Snapshot) -> Panel {
         row_of(vec![Element { grow: true, ..t(&pax, WHITE) }, badge(&format!("Caisse : {:.2} €", s.tickets.1), Rgba([0x10, 0xB9, 0x81, 255]))]),
         divider(),
         row_of(vec![button("open_sheet", &format!("Feuille de route ({})", s.keys[1]), Some("description"))]),
-        small(&format!("{} : feuille de route · {} : tablette · {} : masquer le HUD · Échap : fermer", s.keys[1], s.keys[0], s.keys[2])),
+        small(&format!("{} : feuille de route • {} : tablette • {} : masquer le HUD • Échap : fermer", s.keys[1], s.keys[0], s.keys[2])),
     ];
     let mut p = card(Anchor::TopLeft, 16.0, 64.0, 380.0, 250, children);
     p.accent = Some(Rgba([0x3B, 0x82, 0xF6, 255]));
@@ -879,6 +886,11 @@ mod tests {
         // as wide as what it shows: out of service it is narrower, never wider than the screen
         let off = Snapshot { line: None, tour: None, trip: None, terminus: None, next_stop: None, next_stop_m: None, delay: None, ..snap() };
         assert!(bar(&off, 1920.0).width < bar(&s, 1920.0).width);
+        assert!(!text(&bar(&off, 1920.0)).contains("Feuille"), "out of service, no sheet on the bar");
+        assert!(text(&bar(&off, 1920.0)).contains("Carburant"));
+        // the game's font draws a raised dot as a hyphen: none on the bar
+        assert!(!text(&bar(&s, 1920.0)).contains('·'));
+        assert!(text(&bar(&s, 1920.0)).contains("à 1,3 km"));
         assert!(bar(&s, 900.0).width <= 860.0);
     }
 }
