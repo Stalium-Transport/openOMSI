@@ -518,15 +518,13 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
         if let Some(m) = s.next_stop_m {
             top.push(text(&format!("· {}", distance_text(m)), 14.0, Weight::Medium, WHITE));
         }
-    } else {
-        top.push(Element { grow: true, ..el(None, Kind::Space { size: 0.0 }) });
     }
     if let Some(d) = s.delay {
         let (words, c) = delay_words(d);
         top.push(badge(&words, c));
     }
 
-    let bus = if s.number.is_empty() { short(&s.bus, 22) } else { format!("{} #{}", short(&s.bus, 18), s.number) };
+    let bus = if s.number.is_empty() { short(&s.bus, 30) } else { format!("{} #{}", short(&s.bus, 28), s.number) };
     let mut under = vec![text(&short(&s.driver, 18), 12.0, Weight::Medium, WHITE), t_small(&bus), t_small(&format!("Feuille {} · {} voyageur{}", distance_text(s.km * 1000.0), s.carried, if s.carried > 1 { "s" } else { "" }))];
     if wide {
         let pax = match s.capacity {
@@ -543,7 +541,11 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
         }
     }
 
-    let mut p = card(Anchor::Top, 0.0, 12.0, (width - 40.0).clamp(560.0, 880.0), 235, vec![row_of(top), colored(divider(), Rgba([0x23, 0x28, 0x32, 255])), row_of(under)]);
+    // (as wide as what it shows, both lines from the left: the game lays a panel out at the
+    // width it is given)
+    let (top, under) = (el(None, Kind::Row { children: top, gap: 8.0, align: RowAlign::Start }), el(None, Kind::Row { children: under, gap: 8.0, align: RowAlign::Start }));
+    let fit = (natural_width(&top).max(natural_width(&under)) + 2.0 * 10.0 + 4.0).min((width - 40.0).max(320.0));
+    let mut p = card(Anchor::Top, 0.0, 12.0, fit, 235, vec![top, colored(divider(), Rgba([0x23, 0x28, 0x32, 255])), under]);
     p.padding = 10.0;
     p.gap = 7.0;
     p.radius = 14.0;
@@ -568,6 +570,37 @@ fn logo_path() -> Option<std::path::PathBuf> {
         Some(path)
     })
     .clone()
+}
+
+/// How wide the game draws an element in a row (logical pixels), measured with its own font
+/// as its panels measure (`omsi_plugin_ui`): the HUD's bar is made that wide.
+pub(crate) fn natural_width(e: &Element) -> f32 {
+    thread_local! {
+        static FONTS: omsi_ui::Fonts = omsi_ui::Fonts::new();
+    }
+    fn weight(w: Weight) -> omsi_ui::Weight {
+        match w {
+            Weight::Regular => omsi_ui::Weight::Regular,
+            Weight::Medium => omsi_ui::Weight::Medium,
+            Weight::Bold => omsi_ui::Weight::Bold,
+        }
+    }
+    FONTS.with(|f| {
+        fn of(f: &omsi_ui::Fonts, e: &Element, weight: &dyn Fn(Weight) -> omsi_ui::Weight) -> f32 {
+            match &e.kind {
+                Kind::Text { text, size, weight: w, .. } => text.split('\n').map(|l| f.width_as_is(l, *size, weight(*w))).fold(0.0, f32::max).ceil(),
+                Kind::Icon { size, .. } => *size,
+                Kind::Badge { text, weight: w, .. } => (f.width_as_is(text, 12.0, weight(*w)) + 16.0).ceil(),
+                Kind::Bar { .. } => 60.0,
+                Kind::Divider => 1.0,
+                Kind::Space { size } => *size,
+                Kind::Image { width, .. } => *width,
+                Kind::Row { children, gap, .. } => children.iter().map(|c| of(f, c, weight)).sum::<f32>() + gap * children.len().saturating_sub(1) as f32,
+                _ => 0.0,
+            }
+        }
+        of(f, e, &weight)
+    })
 }
 
 fn t_small(s: &str) -> Element {
@@ -712,6 +745,42 @@ mod tests {
         assert_eq!(short("Docks", 12), "Docks");
     }
 
+    /// The bar's estimated width holds all it shows: the game cuts no text of it short (and
+    /// it is not much wider than that).
+    #[test]
+    fn the_bar_holds_its_texts() {
+        let fonts = omsi_ui::Fonts::new();
+        let wanted = |p: &Panel| {
+            fn walk(es: &[Element], out: &mut Vec<String>) {
+                for e in es {
+                    match &e.kind {
+                        Kind::Text { text, .. } => out.push(text.clone()),
+                        Kind::Row { children, .. } => walk(children, out),
+                        _ => {}
+                    }
+                }
+            }
+            let mut out = Vec::new();
+            walk(&p.children, &mut out);
+            out
+        };
+        let off = Snapshot { line: None, tour: None, trip: None, terminus: None, next_stop: None, next_stop_m: None, delay: None, ..snap() };
+        for s in [snap(), off] {
+            let p = bar(&s, 1920.0);
+            let laid = omsi_plugin_ui::layout(&p, &fonts, 0.0);
+            let drawn: Vec<String> = laid.items.iter().filter_map(|i| if let omsi_plugin_ui::Item::Text { text, .. } = i { Some(text.clone()) } else { None }).collect();
+            for t in wanted(&p) {
+                assert!(drawn.contains(&t), "{t:?} cut short in a bar {} wide: {drawn:?}", p.width);
+            }
+            // not much room left over: a little narrower and something is cut
+            let mut q = p.clone();
+            q.width -= 12.0;
+            let laid = omsi_plugin_ui::layout(&q, &fonts, 0.0);
+            let drawn: Vec<String> = laid.items.iter().filter_map(|i| if let omsi_plugin_ui::Item::Text { text, .. } = i { Some(text.clone()) } else { None }).collect();
+            assert!(wanted(&q).iter().any(|t| !drawn.contains(t)), "the bar {} wide has room to spare", p.width);
+        }
+    }
+
     #[test]
     fn distances_and_delays_read_in_words() {
         assert_eq!(distance_text(8.0), "10 m");
@@ -807,5 +876,9 @@ mod tests {
         assert!(text(&bar(&s, 1920.0)).contains("Carburant"));
         assert!(!text(&bar(&s, 1100.0)).contains("Carburant"));
         assert!(!text(&bar(&s, 1920.0)).contains("F10"), "the keys are on the tablet, not the bar");
+        // as wide as what it shows: out of service it is narrower, never wider than the screen
+        let off = Snapshot { line: None, tour: None, trip: None, terminus: None, next_stop: None, next_stop_m: None, delay: None, ..snap() };
+        assert!(bar(&off, 1920.0).width < bar(&s, 1920.0).width);
+        assert!(bar(&s, 900.0).width <= 860.0);
     }
 }
