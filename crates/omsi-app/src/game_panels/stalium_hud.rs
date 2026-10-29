@@ -95,6 +95,8 @@ pub(crate) struct Snapshot {
     pub tour: Option<String>,
     /// The duty's trip driven (its index), with a duty.
     pub trip: Option<usize>,
+    /// The trip's last stop reached (the game's own "trip done"): only such a trip's sheet goes.
+    pub trip_done: bool,
     pub terminus: Option<String>,
     pub next_stop: Option<String>,
     /// Metres to the next stop: by the road (the navigator's), else in a straight line.
@@ -357,6 +359,7 @@ impl crate::App {
                 s.line = Some(line.to_string()).filter(|l| !l.is_empty());
                 s.tour = Some(d.tour.trim().to_string()).filter(|t| !t.is_empty());
                 s.trip = Some(d.trip_index);
+                s.trip_done = d.trip_done();
                 s.terminus = Some(trip.terminus.trim().to_string()).filter(|t| !t.is_empty());
                 if let Some(st) = trip.stops.get(d.next_stop) {
                     s.next_stop = Some(st.name.trim().to_string()).filter(|n| !n.is_empty());
@@ -407,6 +410,13 @@ impl crate::App {
     /// The sheet of the trip that has just ended (`s`, as the last frame had it) sent, and a
     /// new one begun.
     fn stalium_send_trip_sheet(&mut self, s: &Snapshot) {
+        if !s.trip_done {
+            // (a trip given up before its terminus: no sheet, nothing earned - a new one begins)
+            log::info!("Stalium: trip {:?} of line {:?} given up before its terminus ({:.1} km): no road sheet sent", s.trip, s.line, s.km);
+            self.menus.game_panels.stalium.start = None;
+            self.service_msg = Some(("Course abandonnée avant le terminus : la feuille de route n'est pas envoyée".into(), 6.0));
+            return;
+        }
         if !s.stalium_server {
             // (alone, hosting or on another server: the sheet stays here, a new one begins)
             log::info!("Stalium: trip {:?} of line {:?} ended off the Stalium servers: no road sheet sent", s.trip, s.line);
@@ -731,6 +741,7 @@ mod tests {
             line: Some("21".into()),
             tour: Some("2D".into()),
             trip: Some(13),
+            trip_done: true,
             terminus: Some("P+R Ronoe".into()),
             next_stop: Some("Thiers - Victor Hugo".into()),
             next_stop_m: Some(1290.0),
@@ -841,6 +852,8 @@ mod tests {
         assert!(!trip_ended(&on_trip, &on_trip.clone()));
         assert!(!trip_ended(&Snapshot { trip: Some(13), km: 0.0, carried: 0, ..snap() }, &Snapshot { trip: Some(14), ..snap() }), "nothing driven");
         assert!(!trip_ended(&Snapshot { trip: None, ..snap() }, &Snapshot { trip: Some(1), ..snap() }), "no duty before");
+        // (whether its sheet goes: only with the terminus reached - see stalium_send_trip_sheet)
+        assert!(!snap().trip.is_none() && snap().trip_done);
     }
 
     /// Only a game server on the Stalium machine is a Stalium server.
