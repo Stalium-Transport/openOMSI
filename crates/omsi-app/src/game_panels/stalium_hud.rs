@@ -56,6 +56,9 @@ pub(crate) struct StaliumHud {
     start: Option<SheetStart>,
     /// The last frame's values: the sheet of a trip that has just ended is that.
     last: Option<Snapshot>,
+    /// The trip whose sheet has gone (or was dealt with) at its terminus: not again when the
+    /// duty moves on to the next trip, a minute before it leaves.
+    sent: Option<TripId>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -499,6 +502,20 @@ impl crate::App {
     }
 }
 
+/// A trip of a duty: its line, its duty (tour) and its index.
+pub(crate) type TripId = (Option<String>, Option<String>, usize);
+
+pub(crate) fn trip_id(s: &Snapshot) -> Option<TripId> {
+    Some((s.line.clone(), s.tour.clone(), s.trip?))
+}
+
+/// Whether `now` has just reached its trip's terminus (the game's trip done) and its sheet has
+/// not gone yet (`sent`): it goes at once - not when the duty moves on to the next trip, which
+/// is a minute before that one leaves (a bus 17 minutes early would wait 18).
+pub(crate) fn terminus_reached(sent: Option<&TripId>, now: &Snapshot) -> bool {
+    now.trip_done && trip_id(now).is_some_and(|id| sent != Some(&id))
+}
+
 /// Whether the trip of `last` (the last frame) has ended by `now`: the duty has gone on to
 /// another trip, or ended, or another duty has begun - with the bus still there (a bus being
 /// replaced is no trip's end) and something driven to report.
@@ -769,7 +786,21 @@ pub(crate) fn panels(app: &mut crate::App, screen_width: f32) -> Vec<(&'static s
     let mut snap = if app.stalium_hud_on() { app.stalium_snapshot() } else { None };
     if let Some(now) = snap.as_ref() {
         let last = app.menus.game_panels.stalium.last.take();
-        if let Some(last) = last.filter(|l| trip_ended(l, now)) {
+        // (out of service, the trip sent is forgotten: the same duty driven again sends again)
+        if now.trip.is_none() && last.as_ref().is_none_or(|l| l.trip.is_none()) {
+            app.menus.game_panels.stalium.sent = None;
+        }
+        let sent = app.menus.game_panels.stalium.sent.clone();
+        if terminus_reached(sent.as_ref(), now) {
+            // the terminus reached: the sheet goes now (something driven), and once
+            app.menus.game_panels.stalium.sent = trip_id(now);
+            if now.km >= 0.05 || now.carried > 0 {
+                let ended = now.clone();
+                app.stalium_send_trip_sheet(&ended);
+                snap = app.stalium_snapshot();
+            }
+        } else if let Some(last) = last.filter(|l| trip_ended(l, now) && trip_id(l) != sent) {
+            // a trip that ended without reaching its terminus: given up
             app.stalium_send_trip_sheet(&last);
             snap = app.stalium_snapshot();
         }
@@ -949,6 +980,21 @@ mod tests {
         assert_eq!(read_answer(r#"{"success":1}"#), SiteAnswer::Validated("0".into()));
         assert_eq!(read_answer(r#"{"success":false,"message":"chauffeur inconnu"}"#), SiteAnswer::Refused("chauffeur inconnu".into()));
         assert!(matches!(read_answer("<html>erreur</html>"), SiteAnswer::Refused(_)));
+    }
+
+    /// The sheet goes as the terminus is reached, once: not again when the duty moves on.
+    #[test]
+    fn the_sheet_goes_at_the_terminus_once() {
+        let driving = Snapshot { trip_done: false, ..snap() };
+        let arrived = Snapshot { trip_done: true, ..snap() };
+        assert!(!terminus_reached(None, &driving));
+        assert!(terminus_reached(None, &arrived));
+        let sent = trip_id(&arrived);
+        assert!(!terminus_reached(sent.as_ref(), &arrived), "not twice");
+        // the next trip, reached in its turn
+        assert!(terminus_reached(sent.as_ref(), &Snapshot { trip: Some(14), trip_done: true, ..snap() }));
+        // when the duty moves on, the trip already sent is no trip given up
+        assert!(trip_ended(&arrived, &Snapshot { trip: Some(14), trip_done: false, ..snap() }) && trip_id(&arrived) == sent);
     }
 
     /// A trip ends when the duty goes on to its next trip or ends, not when nothing was driven
