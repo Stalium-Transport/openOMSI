@@ -389,6 +389,8 @@ impl Navigator {
             left_w = w;
         }
         // --- top right: the time, the day and the temperatures (and the line)
+        // (Stalium: on its HUD bar)
+        if !self.lean_cards {
         let hh = (f.time / 3600.0) as i32 % 24;
         let mm = ((f.time % 3600.0) / 60.0) as i32;
         let time_text = format!("{hh:02}:{mm:02}");
@@ -405,8 +407,20 @@ impl Navigator {
             ui.text(&mut self.atlas, &self.fonts, day, 11.0 * s, Weight::Medium, Vec2::new(b.right() - 10.0 * s - self.fonts.width(&time_text, 14.0 * s, Weight::Bold) - 5.0 * s, base), Align::Right, pal.card_dim);
             ui.text(&mut self.atlas, &self.fonts, &temp, 11.0 * s, Weight::Medium, Vec2::new(b.right() - 10.0 * s, b.y + 33.0 * s), Align::Right, pal.card_dim);
         }
+        }
         if self.destination.is_some() {
             self.draw_destination_card(ui, net, map, s, pal);
+            return;
+        }
+        if self.lean_cards {
+            // (Stalium: the next stop, the speed and its limit are on its HUD bar - the limit is
+            // still read, for that bar)
+            self.speed_limit = net.and_then(|n| {
+                let lane = if self.route.on_route { self.route.lanes.get(self.route.progress).copied() } else { None };
+                let lane = lane.or_else(|| n.nearest_lane_near(f.bus, LaneKind::Street).filter(|l| l.2 < 8.0).map(|l| l.0))?;
+                let v = n.lanes.get(lane)?.speed_limit_kmh;
+                (v > 1.0 && v < 200.0).then_some(v)
+            });
             return;
         }
         // --- bottom: the next stop

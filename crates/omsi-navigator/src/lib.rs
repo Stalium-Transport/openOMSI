@@ -280,6 +280,9 @@ pub struct Navigator {
     pub cockpit_display: bool,
     /// The speed limit (km/h) the top bar showed last, for the information bar (#2476).
     pub speed_limit: Option<f32>,
+    /// Stalium: the company's HUD bar shows the time, the speed and its limit, the next stop and
+    /// the delay - the map's cards leave them out (the next turn and a destination stay).
+    pub lean_cards: bool,
     frame_dt: f32,
     last_frame: Option<std::time::Instant>,
     draw_every: u32,
@@ -537,6 +540,7 @@ impl Navigator {
             panel_overlay: None,
             cockpit_display: false,
             speed_limit: None,
+            lean_cards: false,
             frame_dt: 1.0 / 60.0,
             last_frame: None,
             draw_every: 1,

@@ -602,7 +602,7 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
     }
 
     let bus = if s.number.is_empty() { short(&s.bus, 30) } else { format!("{} #{}", short(&s.bus, 28), s.number) };
-    let mut under = vec![text(&short(&s.driver, 18), 12.0, Weight::Medium, WHITE), t_small(&bus)];
+    let mut under = vec![text(&short(&s.driver, 18), 12.0, Weight::Medium, WHITE), t_small(&bus), t_small(&format!("Ext. {:.0} °C • Bus {:.0} °C", s.temperatures.0, s.temperatures.1))];
     // (out of service: no sheet, no passengers to carry - the bar keeps to the bus)
     let in_service = s.trip.is_some();
     if in_service {
@@ -777,6 +777,10 @@ pub(crate) fn panels(app: &mut crate::App, screen_width: f32) -> Vec<(&'static s
     }
     let on = app.stalium_hud_on() && !app.menus.game_panels.stalium.hidden;
     let snap = snap.filter(|_| on);
+    // (the bar shown: the map's cards leave out what it says - the time, the speed, the next stop)
+    if let Some(n) = app.menus.navigator.as_mut() {
+        n.lean_cards = snap.is_some();
+    }
     let h = &app.menus.game_panels.stalium;
     let Some(s) = snap else {
         return vec![("st_bar", None), ("st_tablet", None), ("st_sheet", None)];
@@ -1007,6 +1011,7 @@ mod tests {
         assert!(bar(&off, 1920.0).width < bar(&s, 1920.0).width);
         assert!(!text(&bar(&off, 1920.0)).contains("Feuille"), "out of service, no sheet on the bar");
         assert!(text(&bar(&off, 1920.0)).contains("Carburant"));
+        assert!(text(&bar(&s, 1920.0)).contains("Ext. 8 °C • Bus 21 °C"));
         // the game's font draws a raised dot as a hyphen: none on the bar
         assert!(!text(&bar(&s, 1920.0)).contains('·'));
         assert!(text(&bar(&s, 1920.0)).contains("à 1,3 km"));
