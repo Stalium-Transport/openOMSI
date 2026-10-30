@@ -59,6 +59,66 @@ pub(crate) struct StaliumHud {
     /// The trip whose sheet has gone (or was dealt with) at its terminus: not again when the
     /// duty moves on to the next trip, a minute before it leaves.
     sent: Option<TripId>,
+    /// Where the tablet stands and how big it is (dragged, made bigger or smaller by the
+    /// player, kept in `~/.openomsi/stalium/tablette.txt`); read the first time it opens.
+    place: Option<TabletPlace>,
+    /// The tablet was on the screen last frame (where it was dragged is kept as it goes).
+    tablet_shown: bool,
+}
+
+/// The tablet's top left corner (logical pixels, None: at the right of the screen, under the
+/// bar - away from the chat on the left) and its size (1 = as made).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TabletPlace {
+    pub at: Option<(f32, f32)>,
+    pub k: f32,
+}
+
+impl Default for TabletPlace {
+    fn default() -> Self {
+        TabletPlace { at: None, k: 1.0 }
+    }
+}
+
+/// The tablet's sizes the player steps through.
+pub(crate) const TABLET_SIZES: (f32, f32, f32) = (0.7, 1.6, 0.1);
+
+impl TabletPlace {
+    /// As kept in its file: `x y k`, or `- - k` where it was never moved.
+    pub(crate) fn read(text: &str) -> TabletPlace {
+        let v: Vec<&str> = text.split_whitespace().collect();
+        let num = |i: usize| v.get(i).and_then(|t| t.parse::<f32>().ok()).filter(|x| x.is_finite());
+        let at = num(0).zip(num(1));
+        let k = num(2).unwrap_or(1.0).clamp(TABLET_SIZES.0, TABLET_SIZES.1);
+        TabletPlace { at, k }
+    }
+
+    pub(crate) fn text(&self) -> String {
+        match self.at {
+            Some((x, y)) => format!("{x:.0} {y:.0} {:.1}", self.k),
+            None => format!("- - {:.1}", self.k),
+        }
+    }
+
+    /// Its corner on a screen `screen` logical pixels wide.
+    pub(crate) fn corner(&self, screen: f32) -> (f32, f32) {
+        self.at.unwrap_or(((screen - 380.0 * self.k - 16.0).max(0.0), 110.0))
+    }
+}
+
+fn place_file() -> Option<std::path::PathBuf> {
+    key_file().map(|f| f.with_file_name("tablette.txt"))
+}
+
+fn load_place() -> TabletPlace {
+    place_file().and_then(|f| std::fs::read_to_string(f).ok()).map(|t| TabletPlace::read(&t)).unwrap_or_default()
+}
+
+fn save_place(p: &TabletPlace) {
+    if let Some(f) = place_file() {
+        let _ = f.parent().map(std::fs::create_dir_all);
+        let _ = std::fs::write(f, p.text());
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -717,44 +777,51 @@ fn row_of(children: Vec<Element>) -> Element {
 }
 
 /// The driver's tablet.
-pub(crate) fn tablet(s: &Snapshot) -> Panel {
+pub(crate) fn tablet(s: &Snapshot, at: (f32, f32), k: f32) -> Panel {
     let line = s.line.clone().unwrap_or_else(|| "DÉPÔT".into());
     let (delay, delay_color) = s.delay.map(delay_text).unwrap_or_else(|| ("--".into(), GREY));
     let pax = match s.capacity {
         Some(c) => format!("Passagers : {}/{}", s.aboard, c),
         None => format!("Passagers : {}", s.aboard),
     };
+    // (its texts as big as the tablet)
+    let tk = |text: &str, c: Rgba| colored(el(None, Kind::Text { text: text.to_string(), size: 13.0 * k, weight: Weight::Regular, align: Align::Left, wrap: false }), c);
+    let sk = |text: &str| colored(el(None, Kind::Text { text: text.to_string(), size: 11.0 * k, weight: Weight::Regular, align: Align::Left, wrap: true }), Rgba([0x9C, 0xA3, 0xAF, 255]));
     let children = vec![
         row_of(vec![
             icon("directions_bus", Rgba([0x3B, 0x82, 0xF6, 255])),
-            Element { grow: true, ..colored(el(None, Kind::Text { text: "STALIUM TRANSPORT".into(), size: 14.0, weight: Weight::Bold, align: Align::Left, wrap: false }), WHITE) },
+            Element { grow: true, ..colored(el(None, Kind::Text { text: "STALIUM TRANSPORT".into(), size: 14.0 * k, weight: Weight::Bold, align: Align::Left, wrap: false }), WHITE) },
             badge(&format!("LIGNE {}", short(&line, 10)), Rgba([0x3B, 0x82, 0xF6, 255])),
+            button("tablet_smaller", "-", None),
+            button("tablet_bigger", "+", None),
             button("close_tablet", "X", None),
         ]),
         divider(),
-        row_of(vec![Element { grow: true, ..t(&format!("Prochain : {}", s.next_stop.as_deref().unwrap_or("En attente")), WHITE) }, badge(&delay, delay_color)]),
-        row_of(vec![Element { grow: true, ..t(&format!("Terminus : {}", s.terminus.as_deref().unwrap_or("Sans service")), WHITE) }]),
-        row_of(vec![Element { grow: true, ..t(&pax, WHITE) }, badge(&format!("Caisse : {:.2} €", s.tickets.1), Rgba([0x10, 0xB9, 0x81, 255]))]),
+        row_of(vec![Element { grow: true, ..tk(&format!("Prochain : {}", s.next_stop.as_deref().unwrap_or("En attente")), WHITE) }, badge(&delay, delay_color)]),
+        row_of(vec![Element { grow: true, ..tk(&format!("Terminus : {}", s.terminus.as_deref().unwrap_or("Sans service")), WHITE) }]),
+        row_of(vec![Element { grow: true, ..tk(&pax, WHITE) }, badge(&format!("Caisse : {:.2} €", s.tickets.1), Rgba([0x10, 0xB9, 0x81, 255]))]),
         divider(),
         row_of(vec![button("open_sheet", &format!("Feuille de route ({})", s.keys[1]), Some("description"))]),
         divider(),
         match stalium_key() {
-            Some(k) => row_of(vec![
+            Some(key) => row_of(vec![
                 icon("verified", GREEN),
-                Element { grow: true, ..t(&format!("Compte Stalium relié (clé ...{})", &k[k.len().saturating_sub(4)..]), GREEN) },
+                Element { grow: true, ..tk(&format!("Compte Stalium relié (clé ...{})", &key[key.len().saturating_sub(4)..]), GREEN) },
                 button("forget_key", "Retirer", None),
             ]),
             None => row_of(vec![
                 icon("link_off", RED),
-                Element { grow: true, ..t("Compte Stalium non relié : les feuilles ne partent pas", RED) },
+                Element { grow: true, ..tk("Compte Stalium non relié : les feuilles ne partent pas", RED) },
                 button("paste_key", "Coller ma clé", Some("content_paste")),
             ]),
         },
-        small("Votre clé openOMSI est sur stalium-transport.fr (Mon profil) : copiez-la, puis Coller ma clé."),
-        small(&format!("{} : feuille de route • {} : tablette • {} : masquer le HUD • Échap : fermer", s.keys[1], s.keys[0], s.keys[2])),
+        sk("Votre clé openOMSI est sur stalium-transport.fr (Mon profil) : copiez-la, puis Coller ma clé."),
+        sk(&format!("{} : feuille de route • {} : tablette • {} : masquer le HUD • Échap : fermer • glisser pour déplacer, - / + pour la taille", s.keys[1], s.keys[0], s.keys[2])),
     ];
-    let mut p = card(Anchor::TopLeft, 16.0, 64.0, 380.0, 250, children);
+    let mut p = card(Anchor::TopLeft, at.0, at.1, 380.0 * k, 250, children);
     p.accent = Some(Rgba([0x3B, 0x82, 0xF6, 255]));
+    // (moved by dragging it where it has nothing to click)
+    p.draggable = true;
     p
 }
 
@@ -781,6 +848,45 @@ pub(crate) fn sheet(s: &Snapshot) -> Panel {
         },
     ];
     card(Anchor::Center, 0.0, 0.0, 720.0, 250, children)
+}
+
+/// The tablet's place read the first time it opens, and where it was dragged kept (in its
+/// file) as it leaves the screen: the panels forget a panel's drag when it goes.
+fn keep_tablet_place(app: &mut crate::App, screen_width: f32) {
+    let (hud_on, driving) = (app.stalium_hud_on(), app.player.is_some());
+    let gp = &mut app.menus.game_panels;
+    let shown = gp.ui.get(GAME, "st_tablet").map(|e| e.moved);
+    let h = &mut gp.stalium;
+    if h.tablet && h.place.is_none() {
+        h.place = Some(load_place());
+    }
+    let will_show = h.tablet && hud_on && !h.hidden && driving;
+    if let (Some(moved), false) = (shown, will_show) {
+        if moved != (0.0, 0.0) {
+            let mut p = h.place.unwrap_or_default();
+            let (x, y) = p.corner(screen_width);
+            p.at = Some((x + moved.0, y + moved.1));
+            h.place = Some(p);
+            save_place(&p);
+        }
+    }
+    h.tablet_shown = will_show;
+}
+
+/// The tablet made bigger (`step` > 0) or smaller, its corner where the player sees it.
+fn resize_tablet(app: &mut crate::App, step: f32) {
+    let screen_width = app.menus.game_panels.ui.screen()[0];
+    let moved = app.menus.game_panels.ui.get(GAME, "st_tablet").map(|e| e.moved).unwrap_or((0.0, 0.0));
+    let h = &mut app.menus.game_panels.stalium;
+    let mut p = h.place.unwrap_or_default();
+    let (x, y) = p.corner(screen_width);
+    // (the corner where it stands now, dragged or not: the panel set again from there)
+    p.at = Some((x + moved.0, y + moved.1));
+    p.k = ((p.k + step) * 10.0).round().clamp(TABLET_SIZES.0 * 10.0, TABLET_SIZES.1 * 10.0) / 10.0;
+    h.place = Some(p);
+    save_place(&p);
+    // (its drag folded into its corner)
+    app.menus.game_panels.ui.remove(GAME, "st_tablet");
 }
 
 /// The HUD's panels this frame: (id, the panel or None to take it away).
@@ -810,6 +916,7 @@ pub(crate) fn panels(app: &mut crate::App, screen_width: f32) -> Vec<(&'static s
         }
         app.menus.game_panels.stalium.last = snap.clone();
     }
+    keep_tablet_place(app, screen_width);
     let on = app.stalium_hud_on() && !app.menus.game_panels.stalium.hidden;
     let snap = snap.filter(|_| on);
     // (the bar shown: the map's cards leave out what it says - the time, the speed, the next stop)
@@ -820,9 +927,10 @@ pub(crate) fn panels(app: &mut crate::App, screen_width: f32) -> Vec<(&'static s
     let Some(s) = snap else {
         return vec![("st_bar", None), ("st_tablet", None), ("st_sheet", None)];
     };
+    let place = h.place.unwrap_or_default();
     vec![
         ("st_bar", Some(bar(&s, screen_width))),
-        ("st_tablet", h.tablet.then(|| tablet(&s))),
+        ("st_tablet", h.tablet.then(|| tablet(&s, place.corner(screen_width), place.k))),
         ("st_sheet", h.sheet.then(|| sheet(&s))),
     ]
 }
@@ -840,6 +948,8 @@ pub(crate) fn click(app: &mut crate::App, panel: &str, element: &str) {
                 None => ("Pas de clé Stalium dans le presse-papiers : copiez-la sur stalium-transport.fr (Mon profil)".into(), 8.0),
             });
         }
+        ("st_tablet", "tablet_bigger") => resize_tablet(app, TABLET_SIZES.2),
+        ("st_tablet", "tablet_smaller") => resize_tablet(app, -TABLET_SIZES.2),
         ("st_tablet", "forget_key") => {
             if set_key(None) {
                 app.service_msg = Some(("Compte Stalium retiré de ce PC".into(), 4.0));
@@ -988,6 +1098,22 @@ mod tests {
         assert!(matches!(read_answer("<html>erreur</html>"), SiteAnswer::Refused(_)));
     }
 
+    /// The tablet's place and size, as kept in their file.
+    #[test]
+    fn the_tablet_keeps_its_place_and_size() {
+        let p = TabletPlace::read("1500 220 1.3");
+        assert_eq!(p, TabletPlace { at: Some((1500.0, 220.0)), k: 1.3 });
+        assert_eq!(TabletPlace::read(&p.text()), p);
+        let fresh = TabletPlace::read("- - 1.0");
+        assert_eq!(fresh.at, None);
+        // never moved: at the right, under the bar, away from the chat on the left
+        assert_eq!(fresh.corner(1920.0), (1920.0 - 380.0 - 16.0, 110.0));
+        assert_eq!(TabletPlace::read("x y 9").k, TABLET_SIZES.1, "a size out of bounds is held to them");
+        assert_eq!(TabletPlace::read(""), TabletPlace::default());
+        let t = tablet(&snap(), (100.0, 200.0), 1.5);
+        assert!(t.draggable && t.width == 570.0 && (t.x, t.y) == (100.0, 200.0));
+    }
+
     /// The sheet goes as the terminus is reached, once: not again when the duty moves on.
     #[test]
     fn the_sheet_goes_at_the_terminus_once() {
@@ -1047,8 +1173,8 @@ mod tests {
             walk(&p.children, &mut out);
             out
         };
-        assert!(ids(&tablet(&s)).contains(&"close_tablet".to_string()));
-        assert!(ids(&tablet(&s)).contains(&"open_sheet".to_string()));
+        assert!(ids(&tablet(&s, (16.0, 110.0), 1.0)).contains(&"close_tablet".to_string()));
+        assert!(ids(&tablet(&s, (16.0, 110.0), 1.0)).contains(&"open_sheet".to_string()));
         assert_eq!(ids(&sheet(&s)), vec!["close_sheet".to_string()], "the sheet goes by itself: no button to send it");
         assert!(ids(&bar(&s, 1920.0)).is_empty(), "the bar takes no clicks");
         // the next stop and how far; a narrow screen leaves the gauges out
