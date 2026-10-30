@@ -555,7 +555,8 @@ pub(crate) fn distance_text(m: f64) -> String {
     }
 }
 
-/// `7:06 d'avance`, `2:10 de retard`, `À l'heure` (within a minute), and its colour.
+/// `7:06 d'avance`, `2:10 de retard`, `45 s d'avance` within a minute, `À l'heure` on the
+/// second, and its colour.
 pub(crate) fn delay_words(delay: f64) -> (String, Rgba) {
     let s = delay.abs().round() as i64;
     let mmss = format!("{}:{:02}", s / 60, s % 60);
@@ -563,8 +564,11 @@ pub(crate) fn delay_words(delay: f64) -> (String, Rgba) {
         (format!("{mmss} de retard"), RED)
     } else if delay < -60.0 {
         (format!("{mmss} d'avance"), BLUE)
-    } else {
+    } else if s == 0 {
         ("À l'heure".into(), GREEN)
+    } else {
+        // (within a minute: the seconds, green - on time)
+        (format!("{s} s {}", if delay < 0.0 { "d'avance" } else { "de retard" }), GREEN)
     }
 }
 
@@ -947,7 +951,9 @@ mod tests {
         assert_eq!(distance_text(1290.0), "1,3 km");
         assert_eq!(delay_words(-426.0), ("7:06 d'avance".to_string(), BLUE));
         assert_eq!(delay_words(130.0), ("2:10 de retard".to_string(), RED));
-        assert_eq!(delay_words(30.0).0, "À l'heure");
+        assert_eq!(delay_words(30.0), ("30 s de retard".to_string(), GREEN));
+        assert_eq!(delay_words(-45.2), ("45 s d'avance".to_string(), GREEN));
+        assert_eq!(delay_words(0.3).0, "À l'heure");
     }
 
     #[test]
