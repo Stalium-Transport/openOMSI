@@ -193,6 +193,11 @@ pub(crate) fn delay_text(delay: f64) -> (String, Rgba) {
     (text, color)
 }
 
+/// An amount as French writes it: `7,20`.
+pub(crate) fn euros(x: f64) -> String {
+    format!("{x:.2}").replace('.', ",")
+}
+
 /// A name cut to `max` characters, with ".." when it was longer.
 pub(crate) fn short(s: &str, max: usize) -> String {
     let s = s.trim();
@@ -418,12 +423,18 @@ fn stalium_server_name(app: &crate::App) -> Option<String> {
     is_stalium_host(host, &stalium_ips()).then(|| l.my_name.trim().to_string()).filter(|n| !n.is_empty())
 }
 
+/// A name that is a player's: not empty, not the game's "Driver", not BCS's personnel file
+/// ("bbs", "Bus Company Simulator" - every BCS player's).
+pub(crate) fn usable_name(n: &str) -> bool {
+    let n = n.trim();
+    !n.is_empty() && n != "Driver" && !n.eq_ignore_ascii_case("bbs") && !n.eq_ignore_ascii_case("Bus Company Simulator")
+}
+
 fn driver_name(app: &crate::App) -> String {
-    if let Some(l) = app.net.lan.as_ref().filter(|l| !l.my_name.trim().is_empty()) {
+    if let Some(l) = app.net.lan.as_ref().filter(|l| usable_name(&l.my_name)) {
         return l.my_name.trim().to_string();
     }
-    // (BCS's personnel file is "Bus Company Simulator" for every player: not a name)
-    let usable = |n: &str| !n.is_empty() && n != "Driver" && !n.eq_ignore_ascii_case("bbs") && !n.eq_ignore_ascii_case("Bus Company Simulator");
+    let usable = usable_name;
     if let Some(d) = app.session.career.driver.as_ref().filter(|d| usable(d.name.trim())) {
         return d.name.trim().to_string();
     }
@@ -458,7 +469,7 @@ impl crate::App {
             keys,
             stalium_server: on_server.is_some(),
             // (on a Stalium server, the name the server knows the player by)
-            driver: on_server.unwrap_or_else(|| driver_name(self)),
+            driver: on_server.filter(|n| usable_name(n)).unwrap_or_else(|| driver_name(self)),
             map: map.trim().to_string(),
             bus: if bus.is_empty() { def.path.file_stem().map(|f| f.to_string_lossy().to_string()).unwrap_or_default() } else { bus },
             number: v.number().trim().to_string(),
@@ -673,7 +684,8 @@ pub(crate) fn bar(s: &Snapshot, width: f32) -> Panel {
         top.push(icon("location_on", BLUE));
         top.push(text("Prochain arrêt", 12.0, Weight::Regular, LIGHT));
         top.push(Element { grow: true, ..text(&short(n, 26), 15.0, Weight::Medium, WHITE) });
-        if let Some(m) = s.next_stop_m {
+        // (at the stop, no "à 0 m")
+        if let Some(m) = s.next_stop_m.filter(|m| *m >= 15.0) {
             top.push(text(&format!("à {}", distance_text(m)), 14.0, Weight::Medium, LIGHT));
         }
     }
@@ -779,7 +791,7 @@ fn row_of(children: Vec<Element>) -> Element {
 /// The driver's tablet.
 pub(crate) fn tablet(s: &Snapshot, at: (f32, f32), k: f32) -> Panel {
     let line = s.line.clone().unwrap_or_else(|| "DÉPÔT".into());
-    let (delay, delay_color) = s.delay.map(delay_text).unwrap_or_else(|| ("--".into(), GREY));
+    let (delay, delay_color) = s.delay.map(delay_words).unwrap_or_else(|| ("--".into(), GREY));
     let pax = match s.capacity {
         Some(c) => format!("Passagers : {}/{}", s.aboard, c),
         None => format!("Passagers : {}", s.aboard),
@@ -799,20 +811,20 @@ pub(crate) fn tablet(s: &Snapshot, at: (f32, f32), k: f32) -> Panel {
         divider(),
         row_of(vec![Element { grow: true, ..tk(&format!("Prochain : {}", s.next_stop.as_deref().unwrap_or("En attente")), WHITE) }, badge(&delay, delay_color)]),
         row_of(vec![Element { grow: true, ..tk(&format!("Terminus : {}", s.terminus.as_deref().unwrap_or("Sans service")), WHITE) }]),
-        row_of(vec![Element { grow: true, ..tk(&pax, WHITE) }, badge(&format!("Caisse : {:.2} €", s.tickets.1), Rgba([0x10, 0xB9, 0x81, 255]))]),
+        row_of(vec![Element { grow: true, ..tk(&pax, WHITE) }, badge(&format!("Caisse : {} €", euros(s.tickets.1)), Rgba([0x10, 0xB9, 0x81, 255]))]),
         divider(),
         row_of(vec![button("open_sheet", &format!("Feuille de route ({})", s.keys[1]), Some("description"))]),
         divider(),
         match stalium_key() {
             Some(key) => row_of(vec![
-                icon("verified", GREEN),
+                icon("check_circle", GREEN),
                 Element { grow: true, ..tk(&format!("Compte Stalium relié (clé ...{})", &key[key.len().saturating_sub(4)..]), GREEN) },
                 button("forget_key", "Retirer", None),
             ]),
             None => row_of(vec![
-                icon("link_off", RED),
+                icon("error", RED),
                 Element { grow: true, ..tk("Compte Stalium non relié : les feuilles ne partent pas", RED) },
-                button("paste_key", "Coller ma clé", Some("content_paste")),
+                button("paste_key", "Coller ma clé", Some("key")),
             ]),
         },
         sk("Votre clé openOMSI est sur stalium-transport.fr (Mon profil) : copiez-la, puis Coller ma clé."),
@@ -837,7 +849,7 @@ pub(crate) fn sheet(s: &Snapshot) -> Panel {
         pair(format!("Ligne : {} (service {})", s.line.as_deref().unwrap_or("HLP"), s.tour.as_deref().unwrap_or("--")), BLUE, format!("Destination : {}", s.terminus.as_deref().unwrap_or("Sans service")), WHITE),
         pair(format!("Prise de service : {}", clock(s.start)), Rgba([0xE0, 0xE0, 0xE0, 255]), format!("Heure actuelle : {}", clock(s.time)), Rgba([0xE0, 0xE0, 0xE0, 255])),
         pair(format!("Distance : {:.1} km", s.km), GREEN, format!("Voyageurs : {} transporté(s)", s.carried), GREEN),
-        pair(format!("Billetterie : {} ticket(s) ({:.2} €)", s.tickets.0, s.tickets.1), BLUE, format!("Véhicule : {bus}"), YELLOW),
+        pair(format!("Billetterie : {} ticket(s) ({} €)", s.tickets.0, euros(s.tickets.1)), BLUE, format!("Véhicule : {bus}"), YELLOW),
         row_of(vec![t("Ponctualité :", WHITE), badge(&delay, delay_color)]),
         divider(),
         row_of(vec![button("close_sheet", "Fermer", None)]),
@@ -1052,6 +1064,18 @@ mod tests {
         assert_eq!(tidy_key("bonjour à tous"), None);
         assert_eq!(tidy_key("abc"), None);
         assert_eq!(tidy_key("x\"}"), None);
+    }
+
+    /// BCS's personnel file is no name; the tablet says the delay as the bar does, in French.
+    #[test]
+    fn names_amounts_and_the_stop_reached() {
+        assert!(!usable_name("bbs") && !usable_name(" Driver ") && !usable_name("Bus Company Simulator") && usable_name("michael75"));
+        assert_eq!(euros(7.2), "7,20");
+        let text = |p: &Panel| format!("{:?}", p.children);
+        let t = tablet(&snap(), (0.0, 0.0), 1.0);
+        assert!(text(&t).contains("1:15 de retard") && text(&t).contains("Caisse : 7,20 €"));
+        assert!(!text(&bar(&Snapshot { next_stop_m: Some(4.0), ..snap() }, 1920.0)).contains("à 0 m"), "at the stop, no distance");
+        assert!(!text(&bar(&Snapshot { next_stop_m: Some(4.0), ..snap() }, 1920.0)).contains(" à "));
     }
 
     #[test]
