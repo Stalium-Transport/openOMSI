@@ -601,3 +601,32 @@ fn a_bus_stands_at_its_trips_last_stop_until_its_time_however_long() {
     service.stops.pop_front();
     assert_eq!(service.stop_wait(depart, now, false, false, false), depart - EARLY_LEAVE - now);
 }
+
+/// Stalium: what holds a timetable bus where it stands - people at its doors, its time at the
+/// stop, the end of its trip - and when nothing does (`ai_stuck_remove`).
+#[test]
+fn a_bus_is_held_by_its_people_its_time_and_its_trips_end_only() {
+    let mut b = super::BusService::new(Vec::new());
+    let now = 36_000.0;
+    b.phase = super::Phase::Boarding;
+    b.boarding = 5.0;
+    b.leave_at = now - 10.0;
+    assert!(!b.unheld(now), "people at the doors");
+    b.boarding = 0.0;
+    b.leave_at = now + 60.0;
+    assert!(!b.unheld(now), "its time at the stop");
+    b.leave_at = now - 1.0;
+    assert!(b.unheld(now), "nobody at the doors, its time gone");
+    b.phase = super::Phase::Waiting;
+    assert!(b.unheld(now));
+    b.leave_at = now + 30.0;
+    assert!(!b.unheld(now));
+    // (its time was before midnight, the clock has gone round)
+    b.leave_at = 86_390.0;
+    assert!(b.unheld(20.0), "past midnight");
+    b.phase = super::Phase::Closing;
+    assert!(b.unheld(now), "ready to go: nothing of its own holds it");
+    b.phase = super::Phase::TripDone;
+    assert!(!b.unheld(now), "the end of its trip: it waits for its next one");
+    assert!(b.diag(now).contains("TripDone"));
+}

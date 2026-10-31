@@ -258,7 +258,32 @@ impl Traffic {
             // a random car still on its way that goes out of range sleeps instead (see
             // `DormantCar`); only one whose trip is over leaves the map
             let sleeps_instead = random && !c.gone && !c.is_bus() && self.sim.net.lanes.get(c.state.lane).map(|l| l.kind == LaneKind::Street).unwrap_or(false);
-            let remove = if unloaded {
+            // Stalium (a server's `ai_stuck_remove`): a timetable bus that has stood for minutes
+            // with nothing holding it - its doors shut, ready to go, the street empty ahead - is
+            // stuck (CHU Pasteur, St-Servan, on servers only): taken off, in view or not, and
+            // the next bus of its line goes on. Its state goes to the log, for the cause.
+            let stuck = c.is_bus() && !c.gone && self.sim.stuck_remove.is_some_and(|m| c.unheld > m);
+            if stuck {
+                let h = &c.vehicle.host;
+                log::warn!(
+                    "Stalium: timetable bus {} ({}) line {:?} stood {:.0} s at ({:.0}, {:.0}) with nothing holding it: taken off (ai_stuck_remove). Lane {} s {:.1}/{:.1} lateral {:.2}, why {:?}, lead {:?}, blinker {}, {}",
+                    c.id,
+                    c.vehicle.ty.def.path.file_stem().unwrap_or_default().to_string_lossy(),
+                    h.tt_line,
+                    c.unheld,
+                    p.x,
+                    p.y,
+                    c.state.lane,
+                    c.state.s,
+                    self.sim.net.lanes[c.state.lane].length(),
+                    c.state.lateral,
+                    c.why,
+                    c.lead_info,
+                    c.state.signal,
+                    c.bus.as_ref().map(|b| b.diag(self.sim.day_time)).unwrap_or_default()
+                );
+            }
+            let remove = if unloaded || stuck {
                 true
             } else if at_edge {
                 // (its trip comes back with the tiles; kept until nobody saw it, a bus stood

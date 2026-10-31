@@ -194,6 +194,10 @@ pub struct TrafficSim {
     /// stop too (s; None: as Omsi.exe, up to `LAYOVER_WAIT`, at the last stop however long).
     /// Not a layover at its first stop. A dedicated server sets it from `server.cfg`.
     pub stop_wait_max: Option<f64>,
+    /// Stalium (a server's `ai_stuck_remove`): a timetable bus that has stood this long (s)
+    /// with nothing holding it (`AiCar::unheld`) is taken off, the next of its line goes on.
+    /// None: never.
+    pub stuck_remove: Option<f32>,
     /// `--no-timetable-buses`: the timetable runs for the player's duty, but puts no AI
     /// bus on the road (#1762).
     pub no_timetable_buses: bool,

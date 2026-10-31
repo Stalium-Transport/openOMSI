@@ -10,4 +10,7 @@
 - Compte Stalium relié : les feuilles partent au nom du compte du site, reconnu par sa clé openOMSI (stalium-transport.fr, Mon profil). On la copie, puis tablette (F11) > Coller ma clé ; sans compte relié, la feuille n'est pas envoyée et le jeu le dit.
 - F7 masque ou réaffiche le HUD. Les touches se changent dans Options → Commandes (si F11 ou F7 sert déjà dans votre keyboard.cfg, le jeu prend F8 ou F6, puis Shift+F11 ou Shift+F7). Le HUD se désactive dans Options → Gameplay (« HUD Stalium Transport »).
 
+**Bus de ligne bloqués sur un serveur**
+- Sur un serveur, un bus de ligne pouvait rester à un arrêt, portes fermées et prêt à partir, sans jamais repartir, et toute la ligne s'empilait derrière (Saint-Servan, CHU Pasteur - Cornouaille). Désormais, un bus immobile depuis 5 minutes alors que rien ne le retient (ni feu, ni file devant lui, ni voyageurs, ni heure de départ à attendre) est retiré de la route, et le bus suivant de la ligne prend le relais. La console du serveur l'écrit, avec l'état du bus, pour trouver la cause. Réglable dans `server.cfg` : `ai_stuck_remove = 300` (secondes, `0` = jamais).
+
 **Rappel** : le serveur et les joueurs doivent avoir la même version.

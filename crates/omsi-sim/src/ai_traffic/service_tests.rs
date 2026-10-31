@@ -394,3 +394,23 @@ fn a_holder_kept_short_of_its_point_serves_from_there_after_a_long_wait() {
 }
 
 const SERVE_HERE_LONG_TEST: f32 = 2.5;
+
+/// Stalium: a bus early at its stop, held by its time there, and the car queued behind it are
+/// not stuck (`AiCar::unheld` stays 0): only a bus standing with nothing holding it is.
+#[test]
+fn a_bus_held_by_its_time_and_the_queue_behind_it_are_not_stuck() {
+    let f = Fixture::new();
+    let mut t = road(&f);
+    t.timed_waits_only = false;
+    let bus = add_bus(&mut t, &f, 1, STOP_S - 60.0, 8.0, 400.0);
+    let behind = add_car(&mut t, &f, 2, STOP_S - 110.0, 8.0);
+    let mut most = (0.0f32, 0.0f32);
+    run(&mut t, &[bus], 150.0, |t, _| {
+        if let (Some(b), Some(c)) = (t.cars.iter().find(|c| c.id == bus), t.cars.iter().find(|c| c.id == behind)) {
+            most = (most.0.max(b.unheld), most.1.max(c.unheld));
+        }
+    });
+    assert!(car(&t, bus).at_stop(), "it stands at its stop for its time");
+    // (a second or two at rest at its point before it settles that it is there)
+    assert!(most.0 < 5.0 && most.1 == 0.0, "neither is stuck: {most:?}");
+}

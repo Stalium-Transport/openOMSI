@@ -65,6 +65,10 @@ pub struct AiCar {
     /// Seconds this car has been standing still without a stop of its own: a red light or
     /// a queue is seconds, a jam that never clears grows without bound.
     pub stopped: f32,
+    /// Stalium: seconds a timetable bus has stood with nothing holding it - no light, no
+    /// queue, no people, no time of its own at a stop (`BusService::unheld`); see
+    /// `TrafficSim::stuck_remove`.
+    pub unheld: f32,
     /// The car it follows now (its id), when one is close ahead.
     pub lead_car: Option<u64>,
     /// A car it does not take for its lead until the time given: two that had each other
@@ -703,6 +707,7 @@ impl TrafficSim {
             vehicle,
             body,
             stopped: 0.0,
+            unheld: 0.0,
             lead_car: None,
             ignore_lead: None,
             crawl: 0.0,

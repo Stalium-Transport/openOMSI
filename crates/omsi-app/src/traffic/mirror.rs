@@ -84,6 +84,7 @@ impl Traffic {
             vehicle,
             body,
             stopped: 0.0,
+            unheld: 0.0,
             lead_car: None,
             ignore_lead: None,
             crawl: 0.0,

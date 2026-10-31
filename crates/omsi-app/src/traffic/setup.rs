@@ -144,6 +144,7 @@ impl Traffic {
         if let Some(w) = crate::stalium_server::waits() {
             sim.timed_waits_only = w.timed_only;
             sim.stop_wait_max = w.wait_max;
+            sim.stuck_remove = w.stuck_remove;
         }
         Ok(Traffic::with_sim(sim, root))
     }

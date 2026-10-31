@@ -1113,8 +1113,16 @@ impl TrafficSim {
             .filter(|&j| j < self.cars.len())
             .map(|j| self.cars[j].id);
         let priority_warning = self.priority_warning(i, lead.map(|l| l.0));
+        let day_time = self.day_time;
         let car = &mut self.cars[i];
         car.lead_car = lead_id;
+        // Stalium: a timetable bus standing with nothing holding it (last step's reason: its
+        // stop, or none - not a light, a queue, somebody it gives way to, people)
+        let unheld = car.state.speed.abs() < 0.1
+            && !car.light_hold
+            && matches!(car.why.0, "" | "service")
+            && car.bus.as_ref().is_some_and(|b| b.unheld(day_time));
+        car.unheld = if unheld { car.unheld + dt } else { 0.0 };
         if car.state.speed.abs() < 0.1 && !car.at_stop() {
             car.stopped += dt;
         } else {

@@ -169,6 +169,9 @@ pub struct BusService {
     /// The stops it could not serve (overshot, or could not get to): their ids in order.
     pub missed: Vec<i64>,
     pub fault: Option<ServiceFault>,
+    /// Stalium: what it last waited for while pulling out (`Phase::Closing`): "doors" (its
+    /// script has not said they are shut), "pull_out" (traffic beside its bay), "" (nothing).
+    pub closing_wait: &'static str,
 }
 
 /// Docked: the origin within `DOCK_LONG` of its stop point along the lane, the body within
@@ -425,7 +428,42 @@ impl BusService {
             rest_t: 0.0,
             missed: Vec::new(),
             fault: None,
+            closing_wait: "",
         }
+    }
+
+    /// Stalium: nothing holds it where it stands - not people at its doors, not its time at a
+    /// stop, not the end of its trip (it waits there for its next one). A bus standing so for
+    /// minutes is stuck (`TrafficSim::stuck_remove`). `day_time` past midnight from a time of
+    /// the day before counts as past it.
+    pub fn unheld(&self, day_time: f64) -> bool {
+        let past = |t: f64| day_time >= t || t - day_time > 43_200.0;
+        match self.phase {
+            Phase::TripDone => false,
+            Phase::Boarding => self.boarding <= 0.0 && past(self.leave_at),
+            Phase::Waiting => past(self.leave_at),
+            Phase::Closing | Phase::Running => true,
+        }
+    }
+
+    /// Stalium: its state, for the log line of a stuck bus taken off.
+    pub fn diag(&self, day_time: f64) -> String {
+        format!(
+            "phase {:?} for {:.0} s (waits for {:?}), fault {:?}, boarding {:.0} s, held over {:.0} s, leave at {:+.0} s, stops left {}, front stop {:?}, behind {}, moving up {}, pulling up {}, rest {:.0} s",
+            self.phase,
+            self.phase_t,
+            self.closing_wait,
+            self.fault,
+            self.boarding,
+            self.held_over,
+            self.leave_at - day_time,
+            self.stops.len(),
+            self.stops.front().map(|s| s.id),
+            self.behind,
+            self.moving_up,
+            self.pulling_up,
+            self.rest_t,
+        )
     }
 
     /// The berth it holds, if any.
@@ -847,7 +885,9 @@ impl BusService {
                 st.signal = out_signal(bay);
                 st.signal_time = st.signal_time.max(1.0);
                 let in_bay = st.lateral.abs() > ALIGNED;
-                if self.doors_shut(vehicle, ctx) && !(in_bay && ctx.berth.pull_out_blocked) {
+                let shut = self.doors_shut(vehicle, ctx);
+                self.closing_wait = if !shut { "doors" } else if in_bay && ctx.berth.pull_out_blocked { "pull_out" } else { "" };
+                if shut && !(in_bay && ctx.berth.pull_out_blocked) {
                     self.depart(st, vehicle, ctx);
                     if self.phase == Phase::TripDone {
                         return here;

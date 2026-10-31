@@ -114,6 +114,7 @@ impl TrafficSim {
             max_scheduled,
             timed_waits_only: false,
             stop_wait_max: None,
+            stuck_remove: None,
             no_timetable_buses: false,
             viewer: None,
             occluders: None,
