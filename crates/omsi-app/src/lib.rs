@@ -45,6 +45,7 @@ use omsi_platform::presence;
 use omsi_soundscape::ambience;
 mod soundscape;
 mod stalium_bcs;
+mod stalium_lan;
 mod stalium_server;
 use omsi_scene::wheel_surface;
 use omsi_scene::camera_arm;

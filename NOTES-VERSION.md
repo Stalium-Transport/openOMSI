@@ -13,4 +13,7 @@
 **Bus de ligne bloqués sur un serveur**
 - Sur un serveur, un bus de ligne pouvait rester à un arrêt, portes fermées et prêt à partir, sans jamais repartir, et toute la ligne s'empilait derrière (Saint-Servan, CHU Pasteur - Cornouaille). Désormais, un bus immobile depuis 5 minutes alors que rien ne le retient (ni feu, ni file devant lui, ni voyageurs, ni heure de départ à attendre) est retiré de la route, et le bus suivant de la ligne prend le relais. La console du serveur l'écrit, avec l'état du bus, pour trouver la cause. Réglable dans `server.cfg` : `ai_stuck_remove = 300` (secondes, `0` = jamais).
 
+**Passager dans le bus d'un autre joueur**
+- Passager dans le bus d'un autre joueur : les passagers, le trafic et les gens aux arrêts ne disparaissent plus quand le bus s'éloigne de ton propre bus garé. La correction est sur le serveur : installer la version serveur Stalium.
+
 **Rappel** : le serveur et les joueurs doivent avoir la même version.

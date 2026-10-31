@@ -72,6 +72,7 @@ jobs:
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-lan --lib bcs
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-app --lib stalium_bcs
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-app --lib stalium_hud
+          cargo test --locked --release --target ${{ env.TARGET }} -p omsi-app --lib stalium_lan
           cargo test --locked --release --target ${{ env.TARGET }} -p omsi-platform --lib stalium_versions
       - name: Build (game, launcher)
         shell: cmd

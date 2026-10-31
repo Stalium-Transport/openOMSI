@@ -458,22 +458,30 @@ impl LanWorld {
         mut humans: Option<&mut Humans>,
         me: Option<DVec3>,
     ) {
-        // where the players are: the world is kept around them too
-        let players: Vec<(u32, DVec3)> = lan
+        // where the players are: the world is kept around them too. Stalium: where each one
+        // really is - in the bus it rides in, else where it walks, else in the bus it drives
+        // (`stalium_lan`): a pose's place is the bus a player parked to walk away, and riding
+        // in another player's bus 650 m from it, all its passengers vanished
+        let buses: Vec<(u32, DVec3, f32)> = lan
             .peers()
             .filter(|p| p.has_pose && p.pose.has_vehicle())
-            .map(|p| (p.pose.id, DVec3::new(p.pose.x, p.pose.y, p.pose.z)))
+            .map(|p| (p.pose.id, DVec3::new(p.pose.x, p.pose.y, p.pose.z), p.pose.heading))
+            .chain(me.map(|m| (lan.my_id, m, 0.0)))
             .collect();
+        let bus_of = |id: u32| buses.iter().find(|b| b.0 == id).map(|b| (b.1, b.2));
+        let placed: Vec<(u32, DVec3, f32)> = lan
+            .peers()
+            .filter(|p| p.has_pose)
+            .filter_map(|p| crate::stalium_lan::player_at(&p.pose, bus_of).map(|(at, heading)| (p.pose.id, at, heading)))
+            .collect();
+        let players: Vec<(u32, DVec3)> = placed.iter().map(|p| (p.0, p.1)).collect();
         let centers: Vec<DVec3> = players.iter().map(|p| p.1).collect();
         if let Some(t) = traffic.as_deref_mut() {
             t.lan_centers = centers.clone();
             // and what they see: no car may come or go there in front of them either
             // (the list is kept: no allocation a frame)
             t.lan_eyes.clear();
-            t.lan_eyes.extend(lan.peers().filter(|p| p.has_pose && p.pose.has_vehicle()).map(|p| {
-                let at = DVec3::new(p.pose.x, p.pose.y, p.pose.z);
-                crate::traffic::Viewer::lan_player(at, p.pose.heading as f64)
-            }));
+            t.lan_eyes.extend(placed.iter().map(|&(_, at, heading)| crate::traffic::Viewer::lan_player(at, heading as f64)));
         }
         if let Some(h) = humans.as_deref_mut() {
             h.lan_centers = centers;
@@ -583,7 +591,8 @@ impl LanWorld {
                 if *peer == id {
                     continue;
                 }
-                let bus_near = players_at.iter().any(|(pp, pos)| pp == peer && (*pos - at).truncate().length() < CAR_RADIUS);
+                // (its riders are in its bus: where the bus is, wherever the player walks)
+                let bus_near = buses.iter().any(|(pp, pos, _)| pp == peer && (*pos - at).truncate().length() < CAR_RADIUS);
                 for (pid, track) in &up.tracks {
                     let (Some(local), Some(last), Some(file)) = (up.ids.get(pid), track.samples.last(), up.files.get(pid)) else {
                         continue;
