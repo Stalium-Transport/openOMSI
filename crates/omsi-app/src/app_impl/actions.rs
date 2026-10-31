@@ -128,7 +128,6 @@ impl App {
             "pax_door_request" => self.request_passenger_door(),
             // Stalium's HUD (`game_panels::stalium_hud`): its tablet, its road sheet, all of it
             "stalium_tablet" if self.settings.stalium_hud => self.stalium_toggle_tablet(),
-            "stalium_sheet" if self.settings.stalium_hud => self.stalium_toggle_sheet(),
             "stalium_hud" if self.settings.stalium_hud => self.stalium_toggle_hud(),
             // the menu Esc opens (a controller has no Esc): pressed again, it closes the menu
             // and whatever list it had open, as leaving them with Esc does

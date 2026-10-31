@@ -776,7 +776,7 @@ impl App {
             }
             Role::Panel => {
                 self.input.cursor = (p.x, p.y);
-                self.game_panel_drag(p.x);
+                self.game_panel_drag(p.x, p.y);
             }
             Role::MenuSlider => {
                 let q = self.shell.onto_slider(start, p).unwrap_or(p);

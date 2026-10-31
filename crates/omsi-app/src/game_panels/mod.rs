@@ -49,7 +49,7 @@ pub(crate) struct GamePanels {
 impl GamePanels {
     /// Whether any panel is open.
     pub(crate) fn any(&self) -> bool {
-        self.quick.is_some() || self.trip.is_some() || self.dest.is_some() || self.view.is_some() || self.move_to.is_some() || self.stalium.tablet || self.stalium.sheet
+        self.quick.is_some() || self.trip.is_some() || self.dest.is_some() || self.view.is_some() || self.move_to.is_some() || self.stalium.tablet
     }
 
     /// Whether the panels have the mouse.
@@ -128,7 +128,7 @@ impl crate::App {
                 "dest" => dest_form::click(self, el),
                 "view" => view_editor::click(self, el),
                 "move" => move_here::click(self, el),
-                "st_tablet" | "st_sheet" => stalium_hud::click(self, c.panel.as_str(), el),
+                "st_tablet" => stalium_hud::click(self, c.panel.as_str(), el),
                 _ => {}
             }
         }
@@ -240,10 +240,19 @@ impl crate::App {
             return false;
         }
         if !pressed {
-            return gp.slider.take().is_some();
+            let slider = gp.slider.take().is_some();
+            return stalium_hud::release(self) || slider;
         }
         let (x, y) = self.input.cursor;
         let press = gp.draw.press_at(&gp.ui, x, y);
+        // (Stalium's tablet: held by its free parts it moves, by its corner it is resized)
+        if let Some(pr) = press.as_ref().filter(|p| p.panel == "st_tablet" && p.owner == GAME) {
+            let el = pr.element.clone();
+            if stalium_hud::press(self, el.as_deref(), (x, y)) {
+                return true;
+            }
+        }
+        let gp = &mut self.menus.game_panels;
         if gp.ui.typing().is_some() && !press.as_ref().is_some_and(|p| gp.ui.typing().is_some_and(|t| t.panel == p.panel && p.element.as_deref() == Some(t.element.as_str()))) {
             gp.ui.stop_typing(false);
         }
@@ -251,9 +260,8 @@ impl crate::App {
             if gp.quick.take().is_some() {
                 return true;
             }
-            // (the road sheet is a form: a press beside it stays its; beside the tablet it is
-            // the bus's)
-            return gp.trip.is_some() || gp.dest.is_some() || gp.move_to.is_some() || gp.stalium.sheet;
+            // (beside the tablet a press is the bus's)
+            return gp.trip.is_some() || gp.dest.is_some() || gp.move_to.is_some();
         };
         match (pr.kind, pr.element.as_deref()) {
             (crate::plugin_ui::HitKind::Slider, Some(el)) => {
@@ -267,8 +275,12 @@ impl crate::App {
         true
     }
 
-    /// The cursor moved: a slider held follows it. True when one did.
-    pub(crate) fn game_panel_drag(&mut self, x: f32) -> bool {
+    /// The cursor moved: a slider held follows it, Stalium's tablet held moves or is
+    /// resized. True when one did.
+    pub(crate) fn game_panel_drag(&mut self, x: f32, y: f32) -> bool {
+        if stalium_hud::drag(self, (x, y)) {
+            return true;
+        }
         let gp = &mut self.menus.game_panels;
         let Some((panel, el, track)) = gp.slider.clone() else { return false };
         let f = ((x - track[0]) / (track[1] - track[0]).max(1.0)).clamp(0.0, 1.0);
@@ -307,7 +319,7 @@ impl crate::App {
         if gp.quick.take().is_some() || gp.move_to.take().is_some() || gp.dest.take().is_some() || gp.trip.take().is_some() {
             return true;
         }
-        if std::mem::take(&mut gp.stalium.sheet) || std::mem::take(&mut gp.stalium.tablet) {
+        if std::mem::take(&mut gp.stalium.tablet) {
             return true;
         }
         if gp.view.is_some() {

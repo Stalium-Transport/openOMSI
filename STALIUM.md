@@ -25,21 +25,24 @@ versions 0.3.39 et plus anciennes). Serveur et joueurs : de préférence la mêm
 - **Mises à jour Stalium dans le lanceur** : le lanceur propose et installe les releases
   `stalium-…` de github.com/Stalium-Transport/openOMSI, comme openOMSI le fait pour les siennes, et jamais la version
   officielle (elle ne rejoindrait plus les serveurs Stalium).
-- **HUD Stalium Transport dans le jeu** (il était le plugin Lua `fr.stalium.route` d'AlexLiveFr,
-  à copier dans le dossier du jeu) : un bandeau compact en haut de l'écran à la place de la barre
-  d'informations (ligne et terminus, heure, vitesse et limitation, prochain arrêt et sa distance,
-  avance ou retard ; dessous chauffeur, bus, feuille en cours, passagers et carburant), la tablette conducteur (`stalium_tablet`, F11) et la
-  feuille de route (`stalium_sheet`, F10, à consulter), envoyée - seulement sur un serveur Stalium
-  (serveur de jeu sur la machine de `STALIUM_ANNUAIRE`), au nom du pseudo multijoueur - toute seule à la fin de chaque
-  course du service (le service passe à la course suivante ou se termine) directement au site
-  (`POST https://omsi.stalium-transport.fr/api/omsi_trips.php`, le JSON `SUBMIT_DRIVER_SHEET` du
-  plugin avec `saved_at`, comme Stalium Companion le faisait ; réponse `success` / `earned` affichée
-  en jeu) et au bot en UDP (127.0.0.1:47800), plus à Companion (le site l'aurait reçue deux fois) ;
-  Le site reconnaît le chauffeur par sa clé openOMSI (champ `key`, copiée sur son profil puis
-  « Coller ma clé » dans la tablette, gardée dans `~/.openomsi/stalium/cle.txt`) : sans clé, rien ne part.
-  `stalium_hud` (F7) le masque. Touches dans keyboard.cfg (F8, F9, F6 si les premières sont
-  prises), réglage `stalium_hud` (Options → Gameplay). Les contrôles de titres, aléas, SOS et
-  la télémétrie du plugin n'en font pas partie.
+- **HUD Stalium Transport dans le jeu** (il était le plugin Lua `fr.stalium.route` d'AlexLiveFr) :
+  - un bandeau compact en haut de l'écran à la place de la barre d'informations (ligne et
+    terminus, heure, vitesse et limitation, prochain arrêt et sa distance, avance ou retard ;
+    dessous chauffeur, bus, températures, feuille en cours, passagers et carburant) ; la carte
+    n'affiche alors plus ce que le bandeau montre ;
+  - la tablette conducteur (`stalium_tablet`, F11), déplacée en la faisant glisser et
+    redimensionnée par son coin, avec la feuille de route de la course ;
+  - la feuille part toute seule à l'arrivée au terminus de chaque course (pas une course
+    abandonnée), seulement sur un serveur Stalium (serveur de jeu sur la machine de
+    `STALIUM_ANNUAIRE`) et avec le compte du joueur relié : sa clé openOMSI (copiée sur son
+    profil du site, « Coller ma clé » dans la tablette, gardée dans
+    `~/.openomsi/stalium/cle.txt`) va avec la feuille (`POST
+    https://omsi.stalium-transport.fr/api/omsi_trips.php`, le JSON `SUBMIT_DRIVER_SHEET` avec
+    `saved_at` et `key` ; réponse `success` / `earned` affichée en jeu), et au bot en UDP
+    (127.0.0.1:47800) ;
+  - `stalium_hud` (F7) le masque. Touches dans keyboard.cfg (F8, F6 si les premières sont
+    prises), réglage `stalium_hud` (Options → Gameplay). Les contrôles de titres, aléas, SOS
+    et la télémétrie du plugin n'en font pas partie.
   Code : `crates/omsi-app/src/game_panels/stalium_hud.rs` (les panneaux du jeu, `game_panels`).
 
 ## Compilation
